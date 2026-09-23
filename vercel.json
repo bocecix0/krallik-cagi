@@ -1,0 +1,11 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": null,
+  "installCommand": "npm install --no-audit --no-fund",
+  "buildCommand": "npx expo export --platform web --output-dir dist",
+  "outputDirectory": "dist",
+  "headers": [
+    { "source": "/canvaskit.wasm", "headers": [{ "key": "Content-Type", "value": "application/wasm" }, { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] },
+    { "source": "/_expo/(.*)", "headers": [{ "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }] }
+  ]
+}
