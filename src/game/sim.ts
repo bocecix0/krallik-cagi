@@ -124,6 +124,16 @@ function updateUnit(w: World, u: Entity, dt: number) {
   }
 }
 
+/** Visual close-up: slide towards a work point but stop `keep` tiles away (never enters blocked tiles). */
+function stepToward(u: Entity, tx: number, ty: number, keep: number, step: number) {
+  const dx = tx - u.x, dy = ty - u.y, d = Math.hypot(dx, dy);
+  if (d <= keep + 0.02) return;
+  const m = Math.min(step, d - keep);
+  const nx = u.x + (dx / d) * m, ny = u.y + (dy / d) * m;
+  if (Math.floor(nx) !== Math.floor(u.x) || Math.floor(ny) !== Math.floor(u.y)) return; // stay on our own tile
+  u.x = nx; u.y = ny;
+}
+
 function healNearby(w: World, u: Entity, dt: number) {
   for (const e of w.entities.values()) {
     if (e.kind !== 'unit' || e.owner !== u.owner || e.hp >= e.maxHp || e === u) continue;
@@ -162,7 +172,11 @@ function gather(w: World, u: Entity, targetId: number, dt: number, speed: number
   u.path = [];
   u.working = true;
   u.anim = (u.anim ?? 0) + dt * 5;
-  if (!isFarm) { const dx = t.x + 0.5 - u.x, dy = t.y + 0.5 - u.y; if (Math.abs(dx - dy) > 0.05) u.facing = dx - dy >= 0 ? 1 : -1; }
+  if (!isFarm) {
+    const dx = t.x + 0.5 - u.x, dy = t.y + 0.5 - u.y;
+    if (Math.abs(dx - dy) > 0.05) u.facing = dx - dy >= 0 ? 1 : -1;
+    stepToward(u, t.x + 0.5, t.y + 0.5, 0.7, speed * dt);
+  }
   const amt = Math.min(w.gatherRate(u.owner, t) * dt, t.amount!);
   t.amount! -= amt;
   u.carry = { type: res, amount: (u.carry?.amount ?? 0) + amt };
@@ -212,6 +226,11 @@ function build(w: World, u: Entity, id: number, dt: number, speed: number) {
   u.anim = (u.anim ?? 0) + dt * 6;
   const c = w.centerOf(b);
   if (Math.abs(c.x - u.x - (c.y - u.y)) > 0.05) u.facing = c.x - u.x - (c.y - u.y) >= 0 ? 1 : -1;
+  if (!d.walkable) {
+    // hug the wall: nearest point of the footprint
+    const nx = Math.max(b.x, Math.min(b.x + b.size, u.x)), ny = Math.max(b.y, Math.min(b.y + b.size, u.y));
+    stepToward(u, nx, ny, 0.32, speed * dt);
+  }
   if (!b.built) {
     const inc = dt / d.time;
     b.progress = Math.min(1, (b.progress ?? 0) + inc);

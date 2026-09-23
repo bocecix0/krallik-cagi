@@ -26,6 +26,8 @@ export class Controller {
   paused = false;
   speed = 1;
   private lastTap = { t: 0, id: -1 };
+  /** timestamp (performance.now) of the last touch on the map; drives the adaptive frame rate */
+  lastInput = 0;
   private idleIdx = 0;
   /** increments whenever selection/mode changes so the HUD refreshes immediately */
   rev = 0;
@@ -69,7 +71,8 @@ export class Controller {
     const wp = viewToWorld(this.cam, vx, vy);
     const tile = toTile(wp.x, wp.y);
     if (this.ghost) { this.moveGhost(tile.x, tile.y); return; }
-    const hit = pick(this.w, wp.x, wp.y, 10 / this.cam.zoom);
+    // finger-sized tolerance: ~18dp around the touch point
+    const hit = pick(this.w, wp.x, wp.y, 18 / this.cam.zoom);
     const sel = this.selected();
     const ownUnits = sel.filter((e) => e.kind === 'unit' && e.owner === 1);
     const vills = ownUnits.filter((e) => e.type === 'villager');
@@ -127,7 +130,10 @@ export class Controller {
     const spot = this.suggestSpot(type);
     this.ghost = { type, x: spot.x, y: spot.y, valid: this.w.canPlace(type, spot.x, spot.y, 1) };
     const size = BUILDINGS[type].size;
-    this.centerOn(spot.x + size / 2, spot.y + size / 2);
+    // only move the camera when the suggested spot is not already visible
+    const sx = toScreenX(spot.x + size / 2, spot.y + size / 2), sy = toScreenY(spot.x + size / 2, spot.y + size / 2);
+    const vx = (sx - this.cam.x) * this.cam.zoom + this.cam.vw / 2, vy = (sy - this.cam.y) * this.cam.zoom + this.cam.vh / 2;
+    if (vx < 40 || vy < 60 || vx > this.cam.vw - 40 || vy > this.cam.vh - 40) this.centerOn(spot.x + size / 2, spot.y + size / 2);
     this.rev++;
   }
 
@@ -238,6 +244,29 @@ export class Controller {
       this.centerOn(cx, cy);
     }
     haptic();
+  }
+
+  /** villagers per resource (gathering it or carrying it home) */
+  workerCounts() {
+    const c = { food: 0, wood: 0, gold: 0, stone: 0 };
+    for (const e of this.w.entities.values()) {
+      if (e.owner !== 1 || e.type !== 'villager' || e.garrisonedIn) continue;
+      const o = e.order;
+      let r = o?.kind === 'gather' ? this.w.get(o.target)?.resType : o?.kind === 'return' ? e.carry?.type : undefined;
+      if (o?.kind === 'build' && this.w.get(o.target)?.type === 'farm') r = 'food';
+      if (r) c[r]++;
+    }
+    return c;
+  }
+  private workerIdx = 0;
+  /** tap on a resource counter: cycle through villagers working it */
+  selectWorkers(r: 'food' | 'wood' | 'gold' | 'stone') {
+    const list = this.w.ownEntities(1).filter((e) => e.type === 'villager' && !e.garrisonedIn &&
+      ((e.order?.kind === 'gather' && this.w.get(e.order.target)?.resType === r) || (e.order?.kind === 'return' && e.carry?.type === r)));
+    if (!list.length) return;
+    const v = list[this.workerIdx++ % list.length];
+    this.select([v]);
+    this.centerOn(v.x, v.y);
   }
 
   stop() { this.selected().forEach((e) => e.kind === 'unit' && e.owner === 1 && this.w.setOrder(e, { kind: 'idle' })); this.rev++; }

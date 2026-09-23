@@ -18,13 +18,13 @@ export const SPEC: Record<string, SpriteSpec> = {
   unit_vilf_miner: { h: 38 }, unit_vilf_walk: { h: 37 },
   unit_militia_atk: { h: 41 }, unit_manatarms_atk: { h: 44 }, unit_spearman_atk: { h: 42 }, unit_archer_atk: { h: 40 },
   unit_skirmisher_atk: { h: 41 }, unit_knight_atk: { h: 58 }, unit_scout_atk: { h: 51 },
-  unit_ram: { w: 70 }, unit_mangonel: { w: 66 }, unit_mangonel_atk: { w: 62 }, unit_monk_atk: { h: 42 },
+  unit_ram: { w: 54 }, unit_mangonel: { w: 50 }, unit_mangonel_atk: { w: 48 }, unit_monk_atk: { h: 42 },
   unit_villager_m: { h: 38 }, unit_villager_f: { h: 37 }, unit_villager_carry: { h: 39 },
   unit_militia: { h: 40 }, unit_manatarms: { h: 41 }, unit_spearman: { h: 48 }, unit_archer: { h: 40 },
   unit_skirmisher: { h: 40 }, unit_scout: { h: 50 }, unit_knight: { h: 56 }, unit_monk: { h: 40 },
-  nat_tree_oak: { w: 84, oy: 10 }, nat_tree_oak2: { w: 74, oy: 10 }, nat_tree_pine: { h: 100, oy: 10 }, nat_tree_birch: { w: 70, oy: 10 },
-  nat_berry_bush: { w: 46, oy: 6 }, nat_gold_mine: { w: 66, oy: 6 }, nat_stone_mine: { w: 66, oy: 6 },
-  nat_sheep: { w: 34, oy: 4 }, nat_deer: { w: 42, oy: 4 }, nat_boar: { w: 40, oy: 4 }, nat_stump: { w: 30, oy: 6 }, nat_rock: { w: 40, oy: 4 },
+  nat_tree_oak: { w: 76, oy: 9 }, nat_tree_oak2: { w: 68, oy: 9 }, nat_tree_pine: { h: 92, oy: 9 }, nat_tree_birch: { w: 64, oy: 9 },
+  nat_berry_bush: { w: 40, oy: 6 }, nat_gold_mine: { w: 56, oy: 7 }, nat_stone_mine: { w: 56, oy: 7 },
+  nat_sheep: { w: 25, oy: 4 }, nat_deer: { w: 32, oy: 4 }, nat_boar: { w: 30, oy: 4 }, nat_stump: { w: 26, oy: 6 }, nat_rock: { w: 36, oy: 4 },
 };
 
 export type Images = Partial<Record<string, SkImage>>;

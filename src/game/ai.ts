@@ -130,6 +130,12 @@ export class EnemyAI {
   private allocateEconomy(w: World, s: Snapshot): Record<Res, number> {
     const available = s.villagers.filter((v) => !this.retreatUntil.has(v.id) && !this.siegeVillagers.has(v.id) && v.order?.kind !== 'build');
     const targets = this.economyTargets(w, available.length);
+    const needsFeudalBuildings = w.player(this.owner).age === 1 &&
+      (!s.buildings.some((b) => b.type === 'stable') || !s.buildings.some((b) => b.type === 'blacksmith'));
+    if (needsFeudalBuildings && targets.wood < Math.min(6, available.length - targets.gold)) {
+      const extra = Math.min(targets.food, Math.min(6, available.length - targets.gold) - targets.wood);
+      targets.food -= extra; targets.wood += extra;
+    }
     const counts: Record<Res, number> = { food: 0, wood: 0, gold: 0, stone: 0 };
     for (const v of available) {
       const res = this.villagerResource(w, v);
@@ -197,8 +203,7 @@ export class EnemyAI {
       let tree = woodWorkers.map((v) => v.order?.kind === 'gather' ? w.get(v.order.target) : undefined)
         .find((n) => n && isTree(n) && !camps.some((c) => distance(w.centerOf(c), w.centerOf(n)) <= 6));
       tree ??= this.forestNode(w, s.resources);
-      if (tree && camps.length === 0 && !camps.some((c) => distance(w.centerOf(c), w.centerOf(tree!)) <= 6) &&
-          this.build(w, s, 'lumber_camp', w.centerOf(tree), 3, 1)) return;
+      if (tree && camps.length === 0) { this.build(w, s, 'lumber_camp', w.centerOf(tree), 3, 1); return; }
     }
     const goldTarget = w.nearestNode('gold', this.base.x, this.base.y, 24);
     if (targets.gold >= 2 && goldTarget && !has('mining_camp') &&
@@ -280,14 +285,14 @@ export class EnemyAI {
         this.research(w, tc, 'castle_age', 0)) return;
     if (p.age === 1) {
       const barracks = s.buildings.find((b) => b.type === 'barracks' && b.built);
-      this.research(w, barracks, 'man_at_arms', 0);
+      if (d !== 'normal') this.research(w, barracks, 'man_at_arms', 0);
       return;
     }
     if (p.age === 0 && count >= FEUDAL_VILLAGERS[d]) return;
     if (p.age === 0) return;
     if (p.age < 1) return;
     const barracks = s.buildings.find((b) => b.type === 'barracks' && b.built);
-    if (this.research(w, barracks, 'man_at_arms', p.age === 1 ? 650 : 100)) return;
+    if (this.research(w, barracks, 'man_at_arms', 100)) return;
     const upgrades: [BuildingType, TechId][] = [
       ['lumber_camp', 'double_bit_axe'], ['mill', 'horse_collar'], ['mining_camp', 'gold_mining'],
       ['blacksmith', 'forging'], ['town_center', 'wheelbarrow'],
@@ -313,11 +318,15 @@ export class EnemyAI {
       n + (b.queue ?? []).filter((q) => q.kind === 'unit' && q.id === type).length, 0);
     let choices: UnitType[] = [];
     if (p.age === 0) {
-      if (this.wave === 0 && s.army.length + queued < WAVE_SIZE[w.opts.difficulty]) choices = ['militia'];
+      const feudalQueued = s.buildings.some((b) => (b.queue ?? []).some((q) => q.kind === 'tech' && q.id === 'feudal'));
+      if (this.wave === 0 && (w.opts.difficulty !== 'hard' || feudalQueued) &&
+          s.army.length + queued < WAVE_SIZE[w.opts.difficulty]) choices = ['militia'];
     } else if (p.age === 1) {
       const savingCastle = s.villagers.length >= CASTLE_VILLAGERS[w.opts.difficulty];
       const cap = w.opts.difficulty === 'easy' ? 8 : w.opts.difficulty === 'normal' ? 9 : 10;
-      if (w.has(this.owner, 'man_at_arms') && s.army.length + queued < cap && (!savingCastle || s.army.length + queued < 7)) {
+      const castleQueued = s.buildings.some((b) => (b.queue ?? []).some((q) => q.kind === 'tech' && q.id === 'castle_age'));
+      if (w.opts.difficulty === 'normal' && castleQueued && s.army.length + queued < 5) choices = ['scout'];
+      else if (w.has(this.owner, 'man_at_arms') && s.army.length + queued < cap && (!savingCastle || s.army.length + queued < 7)) {
         choices = ['manatarms'];
       }
     } else choices = total('knight') < Math.max(4, total('manatarms')) ? ['knight', 'manatarms'] : ['manatarms', 'knight'];
@@ -325,7 +334,7 @@ export class EnemyAI {
       const source = s.buildings.find((b) => b.built && b.type === UNITS[type].from && (b.queue?.length ?? 0) < 2);
       const cost = UNITS[type].cost;
       const reserve = p.age === 1 && s.villagers.length >= CASTLE_VILLAGERS[w.opts.difficulty]
-        ? w.opts.difficulty === 'easy' ? 600 : w.opts.difficulty === 'normal' ? 450 : 250 : 0;
+        ? w.opts.difficulty === 'easy' ? 600 : w.opts.difficulty === 'normal' ? 450 : 0 : 0;
       if (source && p.res.food - (cost.food ?? 0) >= reserve && w.train(source, type)) return;
     }
   }
@@ -357,6 +366,15 @@ export class EnemyAI {
     for (const id of [...this.waveUnits]) if (!w.get(id)) this.waveUnits.delete(id);
     for (const id of [...this.siegeVillagers]) if (!w.get(id)) this.siegeVillagers.delete(id);
     let target = this.attackTarget(w, s);
+    const p = w.player(this.owner);
+    const holdForCastle = w.opts.difficulty === 'normal' && p.age < 2 && target?.type === 'town_center' && target.hp <= 350;
+    if (holdForCastle) {
+      const staged = [...this.waveUnits].map((id) => w.get(id)).filter((u): u is Entity => !!u);
+      if (staged.length) w.moveGroup(staged, this.base.x, this.base.y);
+      for (const id of this.siegeVillagers) { const v = w.get(id); if (v) w.setOrder(v, { kind: 'idle' }); }
+      this.siegeVillagers.clear();
+      return;
+    }
     if (!target) this.waveUnits.clear();
     else for (const id of this.waveUnits) {
       const u = w.get(id);
@@ -375,8 +393,11 @@ export class EnemyAI {
         this.nextWave = w.time + base + w.rng() * 20;
       } else this.nextWave = w.time + 15;
     }
-    if (this.wave >= 2 && target && w.opts.difficulty !== 'easy') {
-      const count = w.opts.difficulty === 'hard' ? 6 : 5;
+    const castleQueued = s.buildings.some((b) => (b.queue ?? []).some((q) => q.kind === 'tech' && q.id === 'castle_age'));
+    const useSiege = w.opts.difficulty === 'hard' ? this.wave >= 2 :
+      w.opts.difficulty === 'normal' && this.wave >= 2 && (castleQueued || p.age >= 2);
+    if (useSiege && target) {
+      const count = w.opts.difficulty === 'hard' ? 8 : 6;
       const candidates = s.villagers.filter((v) => !this.retreatUntil.has(v.id) && v.order?.kind !== 'build');
       candidates.sort((a, b) => distance(a, w.centerOf(target!)) - distance(b, w.centerOf(target!)));
       for (const v of candidates) {

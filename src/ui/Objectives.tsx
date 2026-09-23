@@ -36,7 +36,7 @@ export function Objectives({ world }: { world: World }) {
 }
 
 const s = StyleSheet.create({
-  wrap: { position: 'absolute', left: 8, bottom: 10, maxWidth: 220, backgroundColor: 'rgba(234,220,188,0.94)', borderRadius: 8, borderWidth: 1.5, borderColor: C.goldDark, paddingHorizontal: 9, paddingVertical: 6 },
+  wrap: { maxWidth: 205, backgroundColor: 'rgba(234,220,188,0.94)', borderRadius: 8, borderWidth: 1.5, borderColor: C.goldDark, paddingHorizontal: 9, paddingVertical: 6 },
   head: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   title: { fontFamily: F.head, fontSize: 11, color: C.ink, letterSpacing: 0.5 },
   toggle: { fontFamily: F.bodyB, color: C.ink, fontSize: 14 },

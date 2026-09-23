@@ -1,212 +1,129 @@
-import { useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View, type ImageSourcePropType } from 'react-native';
-import { AGE_NAMES, BUILDINGS, ECO_BUILDS, MIL_BUILDS, NODES, RES_NAMES, TECHS, UNITS, costText } from '../game/data';
-import type { BuildingType, Cost, Entity, Res, ResourceNodeType, TechId, UnitType } from '../game/types';
+import { useEffect, useRef, useState } from 'react';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { BUILDINGS, RES_NAMES, costText } from '../game/data';
+import type { Cost, Entity, Res, TechId } from '../game/types';
 import { SOURCES } from '../render/manifest';
+import { bldIcon, buildButtons, entityIcon, entityName, taskLabel, techIcon, unitIcon, type Btn } from './commands';
 import type { Controller } from './controller';
 import { C, F } from './theme';
 
-interface Btn {
-  key: string;
-  icon: ImageSourcePropType;
-  label: string;
-  cost?: Cost;
-  desc?: string;
-  locked?: string; // reason
-  badge?: string;
-  danger?: boolean;
-  onPress: () => void;
-}
+export const PANEL_H = 128;
+const RES_ICON: Record<Res, number> = { food: SOURCES.icon_food, wood: SOURCES.icon_wood, gold: SOURCES.icon_gold, stone: SOURCES.icon_stone };
 
-const unitIcon = (t: string) => SOURCES[`unit_${t}`] ?? SOURCES.unit_villager_m;
-const bldIcon = (t: string) => SOURCES[`bld_${t}`] ?? SOURCES.bld_house;
-const nodeIcon = (t: string) => SOURCES[t === 'berry' ? 'nat_berry_bush' : t === 'gold' ? 'nat_gold_mine' : t === 'stone' ? 'nat_stone_mine' : `nat_${t}`];
-const techIcon = (t: TechId) => SOURCES[`tech_${t}`] ?? SOURCES[TECHS[t].icon] ?? SOURCES.icon_research;
-
-export function entityName(e: Entity, w?: Controller['w']) {
-  if (e.kind === 'unit') return w ? w.unitName(e) : UNITS[e.type as UnitType].name;
-  if (e.kind === 'building') return BUILDINGS[e.type as BuildingType].name;
-  return NODES[e.type as ResourceNodeType].name;
-}
-export function entityIcon(e: Entity) {
-  if (e.kind === 'unit') return e.type === 'villager' && e.female ? SOURCES.unit_villager_f : unitIcon(e.type);
-  if (e.kind === 'building') return bldIcon(e.type);
-  return nodeIcon(e.type);
-}
-
-function taskLabel(e: Entity, ctl: Controller) {
-  const o = e.order;
-  if (!o) return '';
-  switch (o.kind) {
-    case 'idle': return 'Boşta';
-    case 'move': return 'Hareket ediyor';
-    case 'attack': return 'Saldırıyor';
-    case 'build': return 'İnşa ediyor';
-    case 'return': return 'Kaynak taşıyor';
-    case 'gather': { const t = ctl.w.get(o.target); const r = t?.resType as Res | undefined; return r ? `${RES_NAMES[r]} topluyor` : 'Topluyor'; }
-  }
-}
-
+/** Compact bottom action bar: one-line selection strip + horizontally scrolling command row. */
 export function CommandPanel({ ctl }: { ctl: Controller }) {
   const [tab, setTab] = useState<'eco' | 'mil'>('eco');
-  const [info, setInfo] = useState<string>('');
+  const [tip, setTip] = useState<{ text: string; warn?: boolean } | null>(null);
+  const armed = useRef<{ key: string; t: number } | null>(null);
+  const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const w = ctl.w;
-  const me = w.players[1];
   const sel = ctl.selected();
+  const selKey = sel.map((e) => e.id).join(',');
+
+  useEffect(() => { setTip(null); }, [selKey]);
+  const showTip = (text: string, ms = 1800, warn = false) => {
+    setTip({ text, warn });
+    if (tipTimer.current) clearTimeout(tipTimer.current);
+    tipTimer.current = setTimeout(() => setTip(null), ms);
+  };
 
   if (ctl.ghost) {
     const d = BUILDINGS[ctl.ghost.type];
     return (
-      <View style={s.panel}>
+      <View style={s.bar}>
         <View style={s.placeRow}>
           <Image source={bldIcon(ctl.ghost.type)} style={s.placeImg} />
           <View style={{ flex: 1 }}>
-            <Text style={s.name}>{d.name}</Text>
-            <Text style={s.dim}>{costText(d.cost)}</Text>
-            <Text style={[s.dim, { color: ctl.ghost.valid ? C.green : C.warn }]}>{ctl.ghost.valid ? 'Konum uygun — onayla' : 'Haritaya dokunarak yer seç'}</Text>
+            <Text style={s.name} numberOfLines={1}>{d.name}</Text>
+            <CostRow cost={d.cost} w={ctl} />
+            <Text style={[s.status, { color: ctl.ghost.valid ? C.green : C.warn }]} numberOfLines={1}>
+              {ctl.ghost.valid ? 'Uygun — onayla' : 'Haritada boş bir yere dokun'}
+            </Text>
           </View>
-        </View>
-        <View style={s.placeBtns}>
-          <Pressable style={({ pressed }) => [s.bigBtn, s.cancel, pressed && s.pressed]} onPress={() => ctl.cancelPlacement()}>
-            <Text style={s.bigTxt}>✕ İptal</Text>
+          <Pressable style={({ pressed }) => [s.placeBtn, s.cancel, pressed && s.pressed]} onPress={() => ctl.cancelPlacement()} hitSlop={6}>
+            <Text style={s.placeTxt}>✕</Text>
           </Pressable>
-          <Pressable disabled={!ctl.ghost.valid} style={({ pressed }) => [s.bigBtn, s.ok, !ctl.ghost?.valid && { opacity: 0.4 }, pressed && s.pressed]} onPress={() => ctl.confirmPlacement()}>
-            <Text style={s.bigTxt}>✓ İnşa Et</Text>
+          <Pressable disabled={!ctl.ghost.valid} style={({ pressed }) => [s.placeBtn, s.ok, !ctl.ghost?.valid && { opacity: 0.35 }, pressed && s.pressed]} onPress={() => ctl.confirmPlacement()} hitSlop={6}>
+            <Text style={s.placeTxt}>✓</Text>
           </Pressable>
         </View>
       </View>
     );
   }
 
-  const own = sel.filter((e) => e.owner === 1);
-  const vills = own.filter((e) => e.type === 'villager');
-  const units = own.filter((e) => e.kind === 'unit');
-  const bld = sel.length === 1 && sel[0].kind === 'building' && sel[0].owner === 1 ? sel[0] : null;
-  const buttons: Btn[] = [];
+  const vills = sel.filter((e) => e.owner === 1 && e.type === 'villager');
+  const buttons = buildButtons(ctl, tab);
 
-  if (vills.length) {
-    const list = tab === 'eco' ? ECO_BUILDS : MIL_BUILDS;
-    for (const t of list) {
-      const d = BUILDINGS[t];
-      buttons.push({
-        key: t, icon: bldIcon(t), label: d.name, cost: d.cost, desc: d.desc,
-        locked: d.age > me.age ? AGE_NAMES[d.age] : undefined,
-        onPress: () => ctl.startPlacement(t),
-      });
+  const press = (b: Btn) => {
+    if (b.locked) { showTip(`${b.label}: ${b.locked} gerekli`, 1800, true); return; }
+    if (b.danger) {
+      const a = armed.current;
+      if (!a || a.key !== b.key || Date.now() - a.t > 2500) { armed.current = { key: b.key, t: Date.now() }; showTip('Onaylamak için tekrar dokun', 2500, true); return; }
+      armed.current = null;
     }
-  }
-  if (bld && bld.built) {
-    const d = BUILDINGS[bld.type as BuildingType];
-    const hasMaa = w.has(1, 'man_at_arms');
-    for (const u of d.trains ?? []) {
-      if (u === 'militia' && hasMaa) continue;
-      if (u === 'manatarms' && !hasMaa) continue;
-      const ud = UNITS[u];
-      const queued = bld.queue?.filter((q) => q.id === u).length ?? 0;
-      buttons.push({
-        key: u, icon: unitIcon(u), label: ud.name, cost: ud.cost, desc: ud.desc, badge: queued ? String(queued) : undefined,
-        locked: ud.age > me.age ? AGE_NAMES[ud.age] : undefined,
-        onPress: () => w.train(bld, u),
-      });
-    }
-    for (const t of d.techs ?? []) {
-      const td = TECHS[t];
-      if (me.techs.has(t)) continue;
-      const isAge = t === 'feudal' || t === 'castle_age' || t === 'imperial';
-      if (isAge && td.age !== me.age) continue;
-      if (td.requires && !me.techs.has(td.requires)) continue;
-      const inQueue = w.entities.size && [...w.entities.values()].some((e) => e.owner === 1 && e.queue?.some((q) => q.id === t));
-      if (inQueue) continue;
-      const req = isAge ? `${w.ageReqCount(1)}/2 bina` : undefined;
-      buttons.push({
-        key: t, icon: techIcon(t), label: td.name, cost: td.cost, desc: td.desc + (req ? ` (${req})` : ''),
-        locked: td.age > me.age ? AGE_NAMES[td.age] : undefined,
-        onPress: () => w.research(bld, t),
-      });
-    }
-  }
-  if (bld && bld.built && bld.type === 'market') {
-    for (const r of ['food', 'wood', 'stone'] as const) {
-      const icon = SOURCES[`icon_${r}`];
-      buttons.push({ key: 'buy_' + r, icon, label: `Al ${w.buyPrice(r)}`, desc: `100 ${RES_NAMES[r]} satın al: ${w.buyPrice(r)} Altın.`, onPress: () => w.trade(1, r, true) });
-      buttons.push({ key: 'sell_' + r, icon, label: `Sat ${w.sellPrice(r)}`, desc: `100 ${RES_NAMES[r]} sat: ${w.sellPrice(r)} Altın kazan.`, onPress: () => w.trade(1, r, false) });
-    }
-  }
-  if (bld && bld.built && w.garrisonCap(bld) > 0) {
-    const inside = w.garrisoned(bld).length;
-    if (bld.type === 'town_center') buttons.push({ key: 'bell', icon: SOURCES.icon_pop, label: 'Alarm Çanı', desc: `Yakındaki köylüler sığınır, her biri +1 ok atar (${inside}/${w.garrisonCap(bld)}).`, onPress: () => w.ringBell(1, bld) });
-    if (inside) buttons.push({ key: 'ungarrison', icon: unitIcon('villager'), label: 'Çıkar', badge: String(inside), desc: 'Sığınan birimleri dışarı çıkar.', onPress: () => w.ungarrison(bld) });
-  }
-  if (!sel.length) {
-    // quick actions: the most common economy commands without hunting for units on the map
-    const tc = ctl.townCenter();
-    if (tc) {
-      const q = tc.queue?.filter((x) => x.id === 'villager').length ?? 0;
-      buttons.push({ key: 'q_vil', icon: unitIcon('villager'), label: 'Köylü', cost: UNITS.villager.cost, desc: 'Şehir Merkezinde köylü üret.', badge: q ? String(q) : undefined, onPress: () => w.train(tc, 'villager') });
-    }
-    for (const t of ['house', 'farm', 'lumber_camp', 'mining_camp', 'mill'] as BuildingType[]) {
-      const d = BUILDINGS[t];
-      buttons.push({ key: 'q_' + t, icon: bldIcon(t), label: d.name, cost: d.cost, desc: d.desc + ' (en yakın köylü inşa eder)', onPress: () => ctl.quickBuild(t) });
-    }
-    const next = (['feudal', 'castle_age', 'imperial'] as TechId[])[me.age];
-    if (tc && next && w.techAvailable(1, next)) {
-      const td = TECHS[next];
-      buttons.push({ key: 'q_age', icon: techIcon(next), label: 'Çağ Atla', cost: td.cost, desc: `${td.name}. ${td.desc} (${w.ageReqCount(1)}/2)`, onPress: () => w.research(tc, next) });
-    }
-    buttons.push({ key: 'q_mil', icon: bldIcon('barracks'), label: BUILDINGS.barracks.name, cost: BUILDINGS.barracks.cost, desc: BUILDINGS.barracks.desc, onPress: () => ctl.quickBuild('barracks') });
-  }
-  if (units.length) {
-    buttons.push({ key: 'stop', icon: SOURCES.icon_sword, label: 'Dur', desc: 'Birimleri durdur.', onPress: () => ctl.stop() });
-  }
-  if (own.length && !(bld && bld.type === 'town_center')) {
-    buttons.push({ key: 'del', icon: SOURCES.bld_rubble, label: 'Sil', desc: 'Seçileni yok et.', danger: true, onPress: () => ctl.deleteSelected() });
-  }
+    if (b.cost && !w.canAfford(1, b.cost)) { showTip(`${b.label}: yetersiz kaynak (${costText(b.cost)})`, 2000, true); return; }
+    showTip(`${b.label}${b.cost ? ' — ' + costText(b.cost) : ''}`, 1200);
+    b.onPress();
+  };
 
   return (
-    <View style={s.panel}>
-      <SelectionInfo ctl={ctl} sel={sel} />
-      {vills.length > 0 && (
-        <View style={s.tabs}>
-          {(['eco', 'mil'] as const).map((k) => (
-            <Pressable key={k} onPress={() => setTab(k)} style={[s.tab, tab === k && s.tabOn]}>
-              <Image source={k === 'eco' ? SOURCES.icon_hammer : SOURCES.icon_sword} style={s.tabIcon} />
-              <Text style={[s.tabTxt, tab === k && { color: C.goldLight }]}>{k === 'eco' ? 'Ekonomi' : 'Askeri'}</Text>
-            </Pressable>
-          ))}
+    <View style={s.bar}>
+      {tip && (
+        <View style={[s.tip, tip.warn && s.tipWarn]} pointerEvents="none">
+          <Text style={s.tipTxt}>{tip.text}</Text>
         </View>
       )}
-      <Text style={s.info} numberOfLines={2}>{info || (buttons.length ? 'Basılı tut: detay · Dokun: uygula' : '')}</Text>
-      <View style={s.grid}>
+      <SelectionStrip ctl={ctl} sel={sel} />
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.row} keyboardShouldPersistTaps="always">
+        {vills.length > 0 && (
+          <Pressable onPress={() => setTab(tab === 'eco' ? 'mil' : 'eco')} style={({ pressed }) => [s.btn, s.tabBtn, pressed && s.pressed]}>
+            <Image source={tab === 'eco' ? SOURCES.icon_hammer : SOURCES.icon_sword} style={s.btnImg} />
+            <Text style={s.btnLbl}>{tab === 'eco' ? 'Ekonomi' : 'Askeri'}</Text>
+            <Text style={s.swap}>⇄</Text>
+          </Pressable>
+        )}
         {buttons.map((b) => {
           const afford = !b.cost || w.canAfford(1, b.cost);
           return (
-            <Pressable
-              key={b.key}
-              onPress={() => { if (b.locked) { setInfo(`${b.label}: ${b.locked} gerekli`); return; } setInfo(`${b.label}${b.cost ? ' — ' + costText(b.cost) : ''}`); b.onPress(); }}
-              onLongPress={() => setInfo(`${b.label}${b.cost ? ' — ' + costText(b.cost) : ''}. ${b.desc ?? ''}`)}
-              style={({ pressed }) => [s.btn, b.danger && s.btnDanger, (!afford || b.locked) && s.btnDim, pressed && s.pressed]}
-            >
+            <Pressable key={b.key} onPress={() => press(b)} onLongPress={() => showTip(`${b.label}${b.cost ? ' — ' + costText(b.cost) : ''}. ${b.desc ?? ''}`, 3500)} delayLongPress={320}
+              style={({ pressed }) => [s.btn, b.danger && s.btnDanger, (b.locked || !afford) && s.btnDim, pressed && s.pressed]}>
               <Image source={b.icon} style={s.btnImg} />
+              <Text style={s.btnLbl} numberOfLines={1}>{b.label}</Text>
+              {b.cost ? <CostRow cost={b.cost} w={ctl} small /> : null}
               {b.locked ? <Text style={s.lock}>🔒</Text> : null}
               {b.badge ? <View style={s.badge}><Text style={s.badgeTxt}>{b.badge}</Text></View> : null}
-              <Text style={s.btnLbl} numberOfLines={1}>{b.label}</Text>
             </Pressable>
           );
         })}
-      </View>
+      </ScrollView>
     </View>
   );
 }
 
-function SelectionInfo({ ctl, sel }: { ctl: Controller; sel: Entity[] }) {
+function CostRow({ cost, w, small }: { cost: Cost; w: Controller; small?: boolean }) {
+  const res = w.w.players[1].res;
+  return (
+    <View style={s.costRow}>
+      {(Object.keys(cost) as Res[]).map((r) => (
+        <View key={r} style={s.costItem}>
+          <Image source={RES_ICON[r]} style={small ? s.costIconS : s.costIcon} />
+          <Text style={[small ? s.costTxtS : s.costTxt, res[r] < (cost[r] ?? 0) && { color: '#ff8a7a' }]}>{cost[r]}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function SelectionStrip({ ctl, sel }: { ctl: Controller; sel: Entity[] }) {
   const w = ctl.w;
   if (!sel.length) {
     const idle = ctl.idleVillagers().length;
     return (
-      <View style={s.infoBox}>
-        <Text style={s.hint}>Hızlı Eylemler</Text>
-        <Text style={s.dim}>Birime/binaya dokun: seç · Sürükle: kaydır · İki parmak: yakınlaştır · Basılı tut + sürükle: alan seçimi</Text>
-        {idle > 0 && <Text style={[s.dim, { color: C.warn }]}>{idle} boşta köylü var</Text>}
+      <View style={s.strip}>
+        <Text style={s.name}>Hızlı Eylemler</Text>
+        <Text style={[s.status, { flex: 1, textAlign: 'right' }, idle > 0 && { color: C.warn }]} numberOfLines={1}>
+          {idle > 0 ? `${idle} boşta köylü` : 'Bir birime dokunarak seç'}
+        </Text>
       </View>
     );
   }
@@ -214,50 +131,53 @@ function SelectionInfo({ ctl, sel }: { ctl: Controller; sel: Entity[] }) {
     const groups = new Map<string, Entity[]>();
     sel.forEach((e) => groups.set(e.type, [...(groups.get(e.type) ?? []), e]));
     return (
-      <View style={[s.infoBox, s.multi]}>
-        {[...groups.entries()].slice(0, 8).map(([t, list]) => (
-          <Pressable key={t} onPress={() => ctl.select(list)} style={s.multiItem}>
-            <Image source={entityIcon(list[0])} style={s.multiImg} />
-            <Text style={s.multiNum}>{list.length}</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={s.stripScroll} contentContainerStyle={s.multi}>
+        <Text style={[s.name, { marginRight: 6 }]}>{sel.length}</Text>
+        {[...groups.entries()].map(([t, list]) => (
+          <Pressable key={t} onPress={() => ctl.select(list)} style={s.chip}>
+            <Image source={entityIcon(list[0])} style={s.chipImg} />
+            <Text style={s.chipNum}>{list.length}</Text>
           </Pressable>
         ))}
-      </View>
+      </ScrollView>
     );
   }
   const e = sel[0];
-  const hpFrac = e.hp / e.maxHp;
-  const ownerColor = e.owner === 1 ? C.blue : e.owner === 2 ? C.red : C.textDim;
-  let line2 = '';
+  const hpFrac = Math.max(0, e.hp / e.maxHp);
+  const ownerColor = e.owner === 1 ? C.blue : e.owner === 2 ? C.red : C.goldDark;
+  let status = '';
   if (e.kind === 'unit') {
     const st = w.unitStats(e);
-    line2 = `⚔ ${st.attack}  🛡 ${st.melee}/${st.pierce}${st.range ? `  🏹 ${st.range}` : ''}`;
-  } else if (e.kind === 'resource') line2 = `Kalan: ${Math.ceil(e.amount ?? 0)} ${RES_NAMES[e.resType as Res]}`;
-  else if (!e.built) line2 = `İnşa: %${Math.floor((e.progress ?? 0) * 100)}`;
-  else if (e.type === 'farm') line2 = `Kalan: ${Math.ceil(e.amount ?? 0)} Yiyecek`;
-  else if (w.garrisonCap(e) > 0) line2 = `Sığınan: ${w.garrisoned(e).length}/${w.garrisonCap(e)}`;
+    status = `⚔${st.attack} 🛡${st.melee}/${st.pierce}${st.range ? ` 🏹${st.range}` : ''}`;
+    if (e.owner === 1) status += ` · ${taskLabel(e, w)}${e.carry && e.carry.amount >= 1 ? ` (${Math.floor(e.carry.amount)} ${RES_NAMES[e.carry.type]})` : ''}`;
+  } else if (e.kind === 'resource') status = `Kalan ${Math.ceil(e.amount ?? 0)} ${RES_NAMES[e.resType as Res]}`;
+  else if (!e.built) status = `İnşa %${Math.floor((e.progress ?? 0) * 100)}`;
+  else if (e.type === 'farm') status = `Kalan ${Math.ceil(e.amount ?? 0)} Yiyecek`;
+  else if (w.garrisonCap(e) > 0) status = `Sığınan ${w.garrisoned(e).length}/${w.garrisonCap(e)}`;
   return (
-    <View style={s.infoBox}>
-      <View style={s.single}>
-        <View style={[s.portrait, { borderColor: ownerColor }]}>
-          <Image source={entityIcon(e)} style={s.portraitImg} />
+    <View style={s.strip}>
+      <View style={[s.portrait, { borderColor: ownerColor }]}>
+        <Image source={entityIcon(e)} style={s.portraitImg} />
+      </View>
+      <View style={{ flex: 1, minWidth: 0 }}>
+        <View style={s.nameRow}>
+          <Text style={s.name} numberOfLines={1}>{entityName(e, w)}{e.owner === 2 ? ' · Rakip' : ''}</Text>
+          {e.kind !== 'resource' && <Text style={s.hpTxt}>{Math.ceil(e.hp)}/{e.maxHp}</Text>}
         </View>
-        <View style={{ flex: 1 }}>
-          <Text style={s.name}>{entityName(e, w)}{e.owner === 2 ? ' (Rakip)' : ''}</Text>
-          {e.kind !== 'resource' && (
-            <View style={s.hpBar}><View style={[s.hpFill, { width: `${hpFrac * 100}%`, backgroundColor: hpFrac > 0.5 ? C.green : hpFrac > 0.25 ? '#e6c229' : C.red }]} /><Text style={s.hpTxt}>{Math.ceil(e.hp)}/{e.maxHp}</Text></View>
-          )}
-          <Text style={s.dim}>{line2}</Text>
-          {e.kind === 'unit' && e.owner === 1 && <Text style={s.dim}>{taskLabel(e, ctl)}{e.carry ? ` · ${Math.floor(e.carry.amount)} ${RES_NAMES[e.carry.type]}` : ''}</Text>}
-        </View>
+        {e.kind !== 'resource' && (
+          <View style={s.hpBar}><View style={[s.hpFill, { width: `${hpFrac * 100}%`, backgroundColor: hpFrac > 0.5 ? C.green : hpFrac > 0.25 ? '#e6c229' : C.red }]} /></View>
+        )}
+        <Text style={s.status} numberOfLines={1}>{status}</Text>
       </View>
       {e.queue && e.queue.length > 0 && e.owner === 1 && (
         <View style={s.queue}>
-          {e.queue.map((q, i) => (
-            <Pressable key={i} onPress={() => w.cancel(e, i)} style={s.qItem}>
+          {e.queue.slice(0, 4).map((q, i) => (
+            <Pressable key={i} onPress={() => w.cancel(e, i)} style={s.qItem} hitSlop={4}>
               <Image source={q.kind === 'unit' ? unitIcon(q.id) : techIcon(q.id as TechId)} style={s.qImg} />
               {i === 0 && <View style={s.qBar}><View style={[s.qFill, { width: `${(q.progress / q.time) * 100}%` }, q.blocked && { backgroundColor: C.warn }]} /></View>}
             </Pressable>
           ))}
+          {e.queue.length > 4 && <Text style={s.qMore}>+{e.queue.length - 4}</Text>}
         </View>
       )}
     </View>
@@ -265,47 +185,52 @@ function SelectionInfo({ ctl, sel }: { ctl: Controller; sel: Entity[] }) {
 }
 
 const s = StyleSheet.create({
-  panel: { backgroundColor: C.wood, borderTopWidth: 2, borderColor: C.goldDark, paddingHorizontal: 8, paddingTop: 6, paddingBottom: 6, minHeight: 292 },
-  infoBox: { minHeight: 64, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 8, padding: 6, borderWidth: 1, borderColor: '#4a3a28' },
-  hint: { color: C.text, fontFamily: F.bodyB, fontSize: 14 },
-  dim: { color: C.textDim, fontFamily: F.body, fontSize: 12.5 },
-  single: { flexDirection: 'row', alignItems: 'center' },
-  portrait: { width: 56, height: 56, borderRadius: 8, borderWidth: 2, backgroundColor: '#1a130d', marginRight: 8, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
-  portraitImg: { width: 52, height: 52, resizeMode: 'contain' },
-  name: { color: C.goldLight, fontFamily: F.head, fontSize: 14 },
-  hpBar: { height: 12, backgroundColor: '#140e09', borderRadius: 3, marginVertical: 3, overflow: 'hidden', justifyContent: 'center' },
+  bar: { backgroundColor: C.wood, borderTopWidth: 2, borderColor: C.goldDark, paddingTop: 5, paddingBottom: 4, height: PANEL_H },
+  strip: { height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, gap: 8 },
+  stripScroll: { height: 44, flexGrow: 0 },
+  portrait: { width: 40, height: 40, borderRadius: 7, borderWidth: 2, backgroundColor: '#1a130d', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  portraitImg: { width: 36, height: 36, resizeMode: 'contain' },
+  nameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 6 },
+  name: { color: C.goldLight, fontFamily: F.head, fontSize: 13, flexShrink: 1 },
+  hpTxt: { color: C.textDim, fontFamily: F.bodyB, fontSize: 10 },
+  hpBar: { height: 4, backgroundColor: '#140e09', borderRadius: 2, marginVertical: 2, overflow: 'hidden' },
   hpFill: { position: 'absolute', left: 0, top: 0, bottom: 0 },
-  hpTxt: { color: '#fff', fontSize: 9, textAlign: 'center', fontFamily: F.bodyB },
-  queue: { flexDirection: 'row', marginTop: 6, gap: 4 },
-  qItem: { width: 34, height: 34, borderRadius: 5, backgroundColor: '#1a130d', borderWidth: 1, borderColor: C.goldDark, alignItems: 'center', justifyContent: 'center' },
-  qImg: { width: 28, height: 28, resizeMode: 'contain' },
-  qBar: { position: 'absolute', bottom: 1, left: 2, right: 2, height: 4, backgroundColor: '#000' },
-  qFill: { height: 4, backgroundColor: C.green },
-  multi: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, alignItems: 'center' },
-  multiItem: { width: 48, height: 52, borderRadius: 6, backgroundColor: '#1a130d', borderWidth: 1, borderColor: C.goldDark, alignItems: 'center' },
-  multiImg: { width: 38, height: 38, resizeMode: 'contain' },
-  multiNum: { color: C.text, fontFamily: F.bodyB, fontSize: 12, marginTop: -2 },
-  tabs: { flexDirection: 'row', marginTop: 6, gap: 6 },
-  tab: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', paddingVertical: 5, borderRadius: 6, backgroundColor: '#1a130d', borderWidth: 1, borderColor: '#4a3a28' },
-  tabOn: { borderColor: C.gold, backgroundColor: C.woodLight },
-  tabIcon: { width: 18, height: 18, resizeMode: 'contain', marginRight: 5 },
-  tabTxt: { color: C.textDim, fontFamily: F.head, fontSize: 12 },
-  info: { color: C.parchment, fontFamily: F.body, fontSize: 12, marginVertical: 4, minHeight: 16 },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  btn: { width: '18.4%', aspectRatio: 1, borderRadius: 8, backgroundColor: C.wood2, borderWidth: 1.5, borderColor: C.goldDark, alignItems: 'center', paddingBottom: 2, paddingTop: 3, overflow: 'hidden' },
-  btnDim: { opacity: 0.45 },
+  status: { color: C.textDim, fontFamily: F.body, fontSize: 11.5 },
+  queue: { flexDirection: 'row', gap: 3, alignItems: 'center' },
+  qItem: { width: 32, height: 32, borderRadius: 5, backgroundColor: '#1a130d', borderWidth: 1, borderColor: C.goldDark, alignItems: 'center', justifyContent: 'center' },
+  qImg: { width: 26, height: 26, resizeMode: 'contain' },
+  qBar: { position: 'absolute', bottom: 1, left: 2, right: 2, height: 3, backgroundColor: '#000' },
+  qFill: { height: 3, backgroundColor: C.green },
+  qMore: { color: C.textDim, fontFamily: F.bodyB, fontSize: 11 },
+  multi: { alignItems: 'center', paddingHorizontal: 8, gap: 5 },
+  chip: { width: 40, height: 40, borderRadius: 6, backgroundColor: '#1a130d', borderWidth: 1, borderColor: C.goldDark, alignItems: 'center', justifyContent: 'center' },
+  chipImg: { width: 32, height: 32, resizeMode: 'contain' },
+  chipNum: { position: 'absolute', bottom: 0, right: 3, color: C.text, fontFamily: F.bodyB, fontSize: 10 },
+  row: { paddingHorizontal: 6, gap: 5, alignItems: 'center', paddingTop: 3 },
+  btn: { width: 58, height: 70, borderRadius: 8, backgroundColor: C.wood2, borderWidth: 1.5, borderColor: C.goldDark, alignItems: 'center', paddingTop: 2, overflow: 'hidden' },
+  tabBtn: { backgroundColor: '#3a2a1a', borderColor: C.gold },
+  swap: { position: 'absolute', top: 1, right: 3, color: C.goldLight, fontSize: 10 },
+  btnDim: { opacity: 0.42 },
   btnDanger: { borderColor: '#8a2a20' },
-  btnImg: { width: '88%', flex: 1, minHeight: 0, resizeMode: 'contain' },
-  btnLbl: { color: C.text, fontFamily: F.body, fontSize: 10 },
-  lock: { position: 'absolute', top: 2, right: 3, fontSize: 11 },
+  btnImg: { width: 38, height: 34, resizeMode: 'contain' },
+  btnLbl: { color: C.text, fontFamily: F.body, fontSize: 9.5, marginTop: 1, paddingHorizontal: 2 },
+  costRow: { flexDirection: 'row', gap: 3, alignItems: 'center' },
+  costItem: { flexDirection: 'row', alignItems: 'center' },
+  costIcon: { width: 14, height: 14, resizeMode: 'contain', marginRight: 1 },
+  costIconS: { width: 10, height: 10, resizeMode: 'contain' },
+  costTxt: { color: C.text, fontFamily: F.bodyB, fontSize: 12 },
+  costTxtS: { color: C.parchment, fontFamily: F.bodyB, fontSize: 9 },
+  lock: { position: 'absolute', top: 1, right: 2, fontSize: 10 },
   badge: { position: 'absolute', top: 2, right: 2, backgroundColor: C.blue, borderRadius: 8, minWidth: 16, height: 16, alignItems: 'center', justifyContent: 'center' },
   badgeTxt: { color: '#fff', fontSize: 10, fontFamily: F.bodyB },
-  pressed: { transform: [{ scale: 0.94 }], opacity: 0.85 },
-  placeRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  placeImg: { width: 72, height: 60, resizeMode: 'contain' },
-  placeBtns: { flexDirection: 'row', gap: 10, marginTop: 10 },
-  bigBtn: { flex: 1, height: 52, borderRadius: 10, alignItems: 'center', justifyContent: 'center', borderWidth: 1.5 },
-  cancel: { backgroundColor: '#3a1a14', borderColor: '#8a2a20' },
+  pressed: { transform: [{ scale: 0.93 }], opacity: 0.85 },
+  tip: { position: 'absolute', bottom: PANEL_H + 4, left: 10, right: 10, backgroundColor: 'rgba(234,220,188,0.97)', borderRadius: 8, borderWidth: 1.5, borderColor: C.goldDark, paddingHorizontal: 10, paddingVertical: 6, zIndex: 10 },
+  tipWarn: { backgroundColor: 'rgba(255,214,190,0.97)', borderColor: '#b5452c' },
+  tipTxt: { color: C.ink, fontFamily: F.body, fontSize: 13, lineHeight: 17 },
+  placeRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10 },
+  placeImg: { width: 64, height: 56, resizeMode: 'contain' },
+  placeBtn: { width: 64, height: 64, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 2 },
+  cancel: { backgroundColor: '#3a1a14', borderColor: '#b5452c' },
   ok: { backgroundColor: '#1d3a1f', borderColor: C.green },
-  bigTxt: { color: C.text, fontFamily: F.head, fontSize: 16 },
+  placeTxt: { color: C.text, fontFamily: F.headX, fontSize: 26 },
 });

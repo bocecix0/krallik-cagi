@@ -36,6 +36,9 @@ export class World {
   /** hooks set by other modules */
   onUpdate: ((w: World, dt: number) => void)[] = [];
   version = 0; // bumps when entities are added/removed
+  /** bump when explored / visible tiles change (render caches key on these) */
+  exploredVersion = 0;
+  fogVersion = 0;
 
   constructor(opts: WorldOptions) {
     this.opts = opts;
@@ -411,7 +414,8 @@ export class World {
     if (distNow <= range && !u.path?.length) return true;
     const key = `${goal.x0},${goal.y0},${goal.x1},${goal.y1},${range}`;
     u.repath = (u.repath ?? 0) - dt;
-    if (!u.path || u.pathGoal !== key || (moving && u.repath <= 0)) {
+    // also re-plan (throttled) when an empty path left us out of range, e.g. after being pushed by separation
+    if (!u.path || u.pathGoal !== key || (moving && u.repath <= 0) || (!u.path.length && u.repath <= 0)) {
       u.path = findPath(this.size, this.size, this.blocked, ux, uy, goal, range, 3000);
       u.pathGoal = key;
       u.repath = 1 + this.rng();
@@ -463,8 +467,12 @@ export class World {
     if (this.endTimer <= 0) { this.endTimer = 1; this.checkEnd(); }
   }
 
+  private prevVisible: Uint8Array | null = null;
   updateFog() {
+    if (!this.prevVisible) this.prevVisible = new Uint8Array(this.visible.length);
+    this.prevVisible.set(this.visible);
     this.visible.fill(0);
+    let newlyExplored = false;
     const s = this.size;
     for (const e of this.entities.values()) {
       if (e.owner !== 1 || e.garrisonedIn) continue;
@@ -476,9 +484,12 @@ export class World {
       for (let y = Math.max(0, Math.floor(c.y - los)); y <= Math.min(s - 1, Math.ceil(c.y + los)); y++)
         for (let x = Math.max(0, Math.floor(c.x - los)); x <= Math.min(s - 1, Math.ceil(c.x + los)); x++) {
           const dx = x + 0.5 - c.x, dy = y + 0.5 - c.y;
-          if (dx * dx + dy * dy <= r2) { const k = y * s + x; this.visible[k] = 1; this.explored[k] = 1; }
+          if (dx * dx + dy * dy <= r2) { const k = y * s + x; this.visible[k] = 1; if (!this.explored[k]) { this.explored[k] = 1; newlyExplored = true; } }
         }
     }
+    if (newlyExplored) this.exploredVersion++;
+    const pv = this.prevVisible;
+    for (let i = 0; i < pv.length; i++) if (pv[i] !== this.visible[i]) { this.fogVersion++; break; }
   }
 
   checkEnd() {

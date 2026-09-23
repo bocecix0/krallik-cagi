@@ -79,7 +79,7 @@ export function EndOverlay({ world, onRestart, onExit }: { world: World; onResta
 }
 
 const s = StyleSheet.create({
-  toasts: { position: 'absolute', top: 8, left: 8, right: 170, gap: 4 },
+  toasts: { gap: 4, maxWidth: 205 },
   toast: { alignSelf: 'flex-start', backgroundColor: 'rgba(20,14,9,0.85)', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 4, borderLeftWidth: 3, borderColor: C.gold },
   toastWarn: { borderColor: C.red },
   toastGood: { borderColor: C.green },

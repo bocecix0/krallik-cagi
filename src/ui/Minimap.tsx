@@ -15,15 +15,20 @@ const NODE_COLORS: Record<string, string> = { gold: '#ffd54a', stone: '#b9bcc2',
 export const MINI_W = 148;
 export const MINI_H = MINI_W / 2;
 
-function draw(ctl: Controller): SkPicture {
+const terrainCache = new WeakMap<object, { key: string; pic: SkPicture }>();
+
+/** terrain + resources layer; only re-recorded when exploration/visibility changes */
+function terrainLayer(ctl: Controller): SkPicture {
   const w = ctl.w;
+  const key = w.exploredVersion + ':' + w.fogVersion;
+  const hit = terrainCache.get(w);
+  if (hit && hit.key === key) return hit.pic;
   const rec = Skia.PictureRecorder();
   const c = rec.beginRecording(Skia.XYWHRect(0, 0, MINI_W, MINI_H));
   const n = w.size;
-  const s = MINI_W / n; // tile width on minimap (diamond)
+  const s = MINI_W / n;
   const p = Skia.Paint();
   const map = (x: number, y: number) => ({ x: (x - y) * (s / 2) + MINI_W / 2, y: (x + y) * (s / 4) });
-  // terrain as small diamonds approximated by rects (cheap)
   for (let y = 0; y < n; y++) for (let x = 0; x < n; x++) {
     const k = w.idx(x, y);
     if (!w.explored[k]) continue;
@@ -36,8 +41,22 @@ function draw(ctl: Controller): SkPicture {
     c.drawRect(Skia.XYWHRect(m.x - s / 2, m.y - s / 4, s + 0.3, s / 2 + 0.3), p);
     p.setAlphaf(1);
   }
+  const pic = rec.finishRecordingAsPicture();
+  terrainCache.set(w, { key, pic });
+  return pic;
+}
+
+function draw(ctl: Controller): SkPicture {
+  const w = ctl.w;
+  const rec = Skia.PictureRecorder();
+  const c = rec.beginRecording(Skia.XYWHRect(0, 0, MINI_W, MINI_H));
+  const n = w.size;
+  const s = MINI_W / n;
+  const p = Skia.Paint();
+  const map = (x: number, y: number) => ({ x: (x - y) * (s / 2) + MINI_W / 2, y: (x + y) * (s / 4) });
+  c.drawPicture(terrainLayer(ctl));
   for (const e of w.entities.values()) {
-    if (e.kind === 'resource' || e.owner === 0) continue;
+    if (e.kind === 'resource' || e.owner === 0 || e.garrisonedIn) continue;
     const cx = e.kind === 'unit' ? e.x : e.x + e.size / 2, cy = e.kind === 'unit' ? e.y : e.y + e.size / 2;
     const k = w.idx(Math.floor(cx), Math.floor(cy));
     if (e.owner !== 1 && (e.kind === 'unit' ? !w.visible[k] : !w.explored[k])) continue;
@@ -65,7 +84,7 @@ function draw(ctl: Controller): SkPicture {
 export function Minimap({ ctl }: { ctl: Controller }) {
   const [pic, setPic] = useState<SkPicture | null>(null);
   useEffect(() => {
-    const t = setInterval(() => setPic(draw(ctl)), 400);
+    const t = setInterval(() => setPic(draw(ctl)), 700);
     setPic(draw(ctl));
     return () => clearInterval(t);
   }, [ctl]);

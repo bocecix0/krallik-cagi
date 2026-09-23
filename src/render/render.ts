@@ -1,4 +1,4 @@
-import { BlendMode, FilterMode, MipmapMode, PaintStyle, Skia, type SkCanvas, type SkFont, type SkImage, type SkPaint, type SkRect, type SkRSXform } from '@shopify/react-native-skia';
+import { BlendMode, FilterMode, MipmapMode, PaintStyle, Skia, type SkCanvas, type SkFont, type SkImage, type SkPaint, type SkPicture, type SkRect, type SkRSXform } from '@shopify/react-native-skia';
 import { BUILDINGS } from '../game/data';
 import { TH, TW, toScreenX, toScreenY, viewToWorld, type Camera } from '../game/iso';
 import { TERRAIN_COUNT, type BuildingType, type Entity } from '../game/types';
@@ -28,9 +28,16 @@ const paints = {
 };
 const color = (c: string) => Skia.Color(c);
 
+const srcCache = new WeakMap<SkImage, SkRect>();
+function srcOf(img: SkImage) {
+  let r = srcCache.get(img);
+  if (!r) { r = Skia.XYWHRect(0, 0, img.width(), img.height()); srcCache.set(img, r); }
+  return r;
+}
+
 function drawSprite(c: SkCanvas, img: SkImage | undefined, cx: number, by: number, w: number, h: number, flip: boolean, paint: SkPaint = paints.img, rot = 0) {
   if (!img) return;
-  const src = Skia.XYWHRect(0, 0, img.width(), img.height());
+  const src = srcOf(img);
   if (flip || rot) {
     c.save();
     c.translate(cx, by);
@@ -71,14 +78,37 @@ function onScreen(cam: Camera, wx: number, wy: number, pad: number) {
 /** cell origin offset so that a feathered diamond cell lands on its tile */
 const CELL_SCALE = TW / ATLAS.tileW;
 
-function drawTerrain(c: SkCanvas, w: World, cam: Camera, atlas: SkImage, r: ReturnType<typeof visibleRange>) {
+interface LayerCache { terrain?: SkPicture; terrainV: number; fog?: SkPicture; fogV: string }
+const layerCache = new WeakMap<World, LayerCache>();
+function cacheFor(w: World) {
+  let c = layerCache.get(w);
+  if (!c) { c = { terrainV: -1, fogV: '' }; layerCache.set(w, c); }
+  return c;
+}
+function mapBounds(w: World) {
+  const pad = 200;
+  return Skia.XYWHRect(toScreenX(0, w.size) - pad, -pad, w.size * TW + pad * 2, w.size * TH + pad * 2);
+}
+
+/** Terrain for the whole explored map, recorded once per exploration change and replayed every frame. */
+function drawTerrain(c: SkCanvas, w: World, atlas: SkImage) {
+  const cache = cacheFor(w);
+  if (!cache.terrain || cache.terrainV !== w.exploredVersion) {
+    const rec = Skia.PictureRecorder();
+    recordTerrain(rec.beginRecording(mapBounds(w)), w, atlas);
+    cache.terrain = rec.finishRecordingAsPicture();
+    cache.terrainV = w.exploredVersion;
+  }
+  c.drawPicture(cache.terrain);
+}
+
+function recordTerrain(c: SkCanvas, w: World, atlas: SkImage) {
   const byType: { srcs: SkRect[]; xf: SkRSXform[] }[] = Array.from({ length: TERRAIN_COUNT + 1 }, () => ({ srcs: [], xf: [] }));
   const ox = (ATLAS.cellW / 2) * CELL_SCALE, oy = ATLAS.marginY * CELL_SCALE;
-  for (let y = r.y0; y <= r.y1; y++) for (let x = r.x0; x <= r.x1; x++) {
+  for (let y = 0; y < w.size; y++) for (let x = 0; x < w.size; x++) {
     const k = w.idx(x, y);
     if (!w.explored[k]) continue;
     const sx = toScreenX(x, y), sy = toScreenY(x, y);
-    if (!onScreen(cam, sx, sy + TH / 2, 80)) continue;
     const t = w.terrain[k];
     const v = (x % 4) + (y % 4) * 4;
     const bucket = byType[t];
@@ -91,23 +121,34 @@ function drawTerrain(c: SkCanvas, w: World, cam: Camera, atlas: SkImage, r: Retu
   }
 }
 
-function drawFog(c: SkCanvas, w: World, cam: Camera, atlas: SkImage, r: ReturnType<typeof visibleRange>) {
+function drawFog(c: SkCanvas, w: World, atlas: SkImage) {
+  const cache = cacheFor(w);
+  const key = w.fogVersion + ':' + w.exploredVersion;
+  if (!cache.fog || cache.fogV !== key) {
+    const rec = Skia.PictureRecorder();
+    recordFog(rec.beginRecording(mapBounds(w)), w, atlas);
+    cache.fog = rec.finishRecordingAsPicture();
+    cache.fogV = key;
+  }
+  c.drawPicture(cache.fog);
+}
+
+function recordFog(c: SkCanvas, w: World, atlas: SkImage) {
   const dark: SkRSXform[] = [], dim: SkRSXform[] = [];
   // fog cells fade from their centre and are drawn enlarged so neighbouring cells blend smoothly
   const k = CELL_SCALE * 1.6;
   const ox = (ATLAS.cellW / 2) * k, oy = (ATLAS.marginY + ATLAS.tileW / 4) * k;
-  for (let y = Math.max(0, r.y0 - 2); y <= Math.min(w.size - 1, r.y1 + 1); y++) for (let x = Math.max(0, r.x0 - 2); x <= Math.min(w.size - 1, r.x1 + 1); x++) {
+  for (let y = 0; y < w.size; y++) for (let x = 0; x < w.size; x++) {
     const i = w.idx(x, y);
     if (w.visible[i]) continue;
     const cx = toScreenX(x + 0.5, y + 0.5), cy = toScreenY(x + 0.5, y + 0.5);
-    if (!onScreen(cam, cx, cy, 100)) continue;
     (w.explored[i] ? dim : dark).push(Skia.RSXform(k, 0, cx - ox, cy - oy));
   }
   // map border: treat outside of the map as unexplored darkness
   for (let i = -2; i < w.size + 2; i++) {
     for (const [x, y] of [[i, -1], [i, -2], [-1, i], [-2, i], [i, w.size], [i, w.size + 1], [w.size, i], [w.size + 1, i]]) {
       const cx = toScreenX(x + 0.5, y + 0.5), cy = toScreenY(x + 0.5, y + 0.5);
-      if (onScreen(cam, cx, cy, 100)) dark.push(Skia.RSXform(k, 0, cx - ox, cy - oy));
+      dark.push(Skia.RSXform(k, 0, cx - ox, cy - oy));
     }
   }
   const src = Skia.XYWHRect(0, TERRAIN_COUNT * ATLAS.cellH, ATLAS.cellW, ATLAS.cellH);
@@ -135,7 +176,7 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
   c.scale(cam.zoom, cam.zoom);
   c.translate(-cam.x, -cam.y);
   const r = visibleRange(w, cam);
-  if (atlas) drawTerrain(c, w, cam, atlas, r);
+  if (atlas) drawTerrain(c, w, atlas);
 
   // ground layer: farms, corpses/stumps
   for (const cp of w.corpses) {
@@ -246,10 +287,7 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
       const img = e.owner === 2 ? imgs[`${key}_red`] ?? imgs[key] : imgs[key];
       drawSprite(c, img, sx, sy + 2 - bob, s.w, s.h, e.facing === -1, paints.img, rot);
       if (rs.selection.has(e.id) || (e.hp < e.maxHp && e.owner !== 0)) drawHp(c, sx, sy - s.h - 5, 26, e.hp / e.maxHp, e.owner === 1);
-      if (e.carry && e.carry.amount > 0.5 && e.type === 'villager' && key !== 'unit_villager_carry') {
-        const ck = e.carry.type === 'food' ? 'icon_food' : e.carry.type === 'wood' ? 'icon_wood' : e.carry.type === 'gold' ? 'icon_gold' : 'icon_stone';
-        drawSprite(c, imgs[ck], sx + (e.facing === -1 ? 8 : -8), sy - s.h * 0.35, 12, 12, false);
-      }
+
     }
   }
 
@@ -270,7 +308,7 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
     c.drawLine(toScreenX(x, y), toScreenY(x, y) - arc, toScreenX(x2, y2), toScreenY(x2, y2) - arc2, paints.stroke);
   }
 
-  if (atlas) drawFog(c, w, cam, atlas, r);
+  if (atlas) drawFog(c, w, atlas);
 
   // move markers
   for (const m of rs.markers) {

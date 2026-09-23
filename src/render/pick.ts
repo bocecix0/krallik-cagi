@@ -64,7 +64,18 @@ export function pick(w: World, wx: number, wy: number, slop: number): Entity | u
     const depth = e.x + e.y + e.size;
     if (depth > bestSpriteDepth) { bestSpriteDepth = depth; bestSprite = e; }
   }
-  return bestUnit ?? bestSprite ?? bestGround;
+  if (bestUnit) return bestUnit;
+  // near-miss on a unit (small targets on a phone): take the closest unit within the slop radius
+  if (!bestSprite) {
+    let near: Entity | undefined, nd = slop * 1.6;
+    for (const e of w.entities.values()) {
+      if (e.kind !== 'unit' || e.garrisonedIn || !visibleToPlayer(w, e)) continue;
+      const d = Math.hypot(wx - toScreenX(e.x, e.y), wy - (toScreenY(e.x, e.y) - 18));
+      if (d < nd) { nd = d; near = e; }
+    }
+    if (near) return near;
+  }
+  return bestSprite ?? bestGround;
 }
 
 /** All own units whose feet are inside a world-pixel rect. */
