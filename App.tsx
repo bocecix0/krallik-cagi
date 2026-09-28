@@ -9,9 +9,11 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { MapStyle } from './src/game/mapgen';
 import type { Difficulty } from './src/game/types';
+import { sound } from './src/audio/sound';
 import { loadAll, type Loaded } from './src/render/loader';
 import { GameScreen } from './src/ui/GameScreen';
 import { MainMenu } from './src/ui/MainMenu';
+import { RotateHint, requestLandscape, useLandscapeLock } from './src/ui/Orientation';
 import { C } from './src/ui/theme';
 
 type Settings = { difficulty: Difficulty; style: MapStyle; seed: number };
@@ -21,6 +23,7 @@ export default function App() {
   const [assets, setAssets] = useState<Loaded | null>(null);
   const [progress, setProgress] = useState(0);
   const [game, setGame] = useState<Settings | null>(null);
+  useLandscapeLock();
 
   useEffect(() => {
     loadAll(AlegreyaSans_800ExtraBold as number, setProgress).then(setAssets);
@@ -41,8 +44,9 @@ export default function App() {
             onRestart={() => setGame({ ...game, seed: Math.floor(Math.random() * 1e9) })}
           />
         ) : (
-          <MainMenu progress={progress} ready={!!assets} onStart={setGame} />
+          <MainMenu progress={progress} ready={!!assets} onStart={(g) => { requestLandscape(); sound.init(); sound.startMusic(); setGame(g); }} />
         )}
+        <RotateHint />
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

@@ -3,8 +3,15 @@ import { generateMap, mulberry32, type MapStyle } from './mapgen';
 import { findFreeTileNear, findPath, rectDist, type Rect } from './pathfinding';
 import {
   T, type BuildingType, type Cost, type Difficulty, type Entity, type FloatText, type Player, type Projectile,
-  type Res, type ResourceNodeType, type TechId, type UnitType,
+  type FxEvent, type Res, type ResourceNodeType, type TechId, type UnitType,
 } from './types';
+
+/** Turn a unit toward a world-space direction: left/right mirror + front/back view (4 isometric facings). */
+export function face(u: Entity, dx: number, dy: number) {
+  const sx = dx - dy, sy = dx + dy; // screen-space direction
+  if (Math.abs(sx) > 0.02) u.facing = sx >= 0 ? 1 : -1;
+  if (Math.abs(sy) > 0.02) u.back = sy < 0;
+}
 
 export interface GameEvent { text: string; t: number; kind: 'info' | 'warn' | 'good'; x?: number; y?: number }
 export interface Corpse { x: number; y: number; type: string; owner: number; t: number; facing: 1 | -1 }
@@ -26,6 +33,10 @@ export class World {
   floats: FloatText[] = [];
   corpses: Corpse[] = [];
   events: GameEvent[] = [];
+  /** visual effect requests for the renderer (dust, sparks...) */
+  fx: FxEvent[] = [];
+  /** sound requests for the audio layer (world stays audio-agnostic for headless sims) */
+  sfx: { key: string; x?: number; y?: number }[] = [];
   visible: Uint8Array;
   explored: Uint8Array;
   winner = 0;
@@ -87,6 +98,12 @@ export class World {
     this.events.push({ text, kind, t: this.time, x, y });
     if (this.events.length > 20) this.events.shift();
   }
+  sound(key: string, x?: number, y?: number) {
+    if (this.sfx.length < 40) this.sfx.push({ key, x, y });
+  }
+  fxAt(kind: FxEvent['kind'], x: number, y: number, size = 1) {
+    if (this.fx.length < 60) this.fx.push({ kind, x, y, size });
+  }
   float(x: number, y: number, text: string, color: string) { this.floats.push({ x, y, text, color, t: 0 }); }
 
   // ---------- spawning ----------
@@ -127,6 +144,8 @@ export class World {
       }
     }
     if (e.kind === 'unit' || e.kind === 'building') this.corpses.push({ x: e.x, y: e.y, type: e.type, owner: e.owner, t: 0, facing: e.facing ?? 1 });
+    if (e.kind === 'building') { this.fxAt('collapse', e.x + e.size / 2, e.y + e.size / 2, e.size); if (e.type !== 'farm') this.sound('collapse', e.x + e.size / 2, e.y + e.size / 2); }
+    else if (e.kind === 'unit') { this.fxAt('dust', e.x, e.y, 0.6); this.sound('death', e.x, e.y); }
     this.entities.delete(e.id);
     this.version++;
     if (e.kind === 'building' && e.owner) this.recountPop();
@@ -165,9 +184,11 @@ export class World {
       const cost = this.buyPrice(r);
       if (p.gold < cost) { if (owner === 1) this.event('Yetersiz altın', 'warn'); return false; }
       p.gold -= cost; p[r] += 100; this.prices[r] = Math.min(9999, this.prices[r] + 5);
+      if (owner === 1) this.sound('coin');
     } else {
       if (p[r] < 100) { if (owner === 1) this.event('En az 100 gerekli', 'warn'); return false; }
       p[r] -= 100; p.gold += this.sellPrice(r); this.prices[r] = Math.max(20, this.prices[r] - 5);
+      if (owner === 1) this.sound('coin');
     }
     return true;
   }
@@ -334,7 +355,7 @@ export class World {
       const up = UPGRADES[t];
       if (up?.hp && up.units.includes(e.type as UnitType)) { e.maxHp += up.hp; e.hp += up.hp; }
     }
-    if (owner === 1) this.event(`${TECHS[t].name.replace(/ Geç$/, '')} tamamlandı`, 'good');
+    if (owner === 1) { this.event(`${TECHS[t].name.replace(/ Geç$/, '')} tamamlandı`, 'good'); this.sound(t === 'feudal' || t === 'castle_age' || t === 'imperial' ? 'ageup' : 'built'); }
   }
 
   // ---------- garrison ----------
@@ -355,7 +376,7 @@ export class World {
     const vills = [...this.entities.values()].filter((e) => e.owner === owner && e.type === 'villager' && !e.garrisonedIn && Math.hypot(e.x - c.x, e.y - c.y) < 16)
       .sort((a, z) => Math.hypot(a.x - c.x, a.y - c.y) - Math.hypot(z.x - c.x, z.y - c.y)).slice(0, Math.max(0, room));
     vills.forEach((v) => this.setOrder(v, { kind: 'garrison', target: b.id }));
-    if (owner === 1 && vills.length) this.event(`Alarm! ${vills.length} köylü sığınıyor`, 'warn');
+    if (owner === 1 && vills.length) { this.event(`Alarm! ${vills.length} köylü sığınıyor`, 'warn'); this.sound('bell'); }
     return vills.length;
   }
 
@@ -426,7 +447,7 @@ export class World {
       const p = u.path[0];
       const px = p.x + 0.5, py = p.y + 0.5;
       const dx = px - u.x, dy = py - u.y, d = Math.hypot(dx, dy);
-      if (Math.abs(dx - dy) > 0.01) u.facing = dx - dy >= 0 ? 1 : -1;
+      face(u, dx, dy);
       if (d <= step) { u.x = px; u.y = py; step -= d; u.path.shift(); if (rectDist(p.x, p.y, goal) <= range) { u.path = []; return true; } }
       else { u.x += (dx / d) * step; u.y += (dy / d) * step; step = 0; }
     }

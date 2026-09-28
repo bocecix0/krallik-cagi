@@ -151,15 +151,16 @@ def main():
         if key.startswith("tex_"):
             continue
         im = Image.open(os.path.join(RAW, f))
+        is_art = key.startswith("ui_menu_bg") or key.startswith("ui_loading")
         if im.mode != "RGBA" or np.asarray(im.convert("RGBA"))[:, :, 3].min() > 250:
-            if key != "ui_menu_bg":
+            if not is_art:
                 im = remove_bg(im)
         im = im.convert("RGBA")
-        if key != "ui_menu_bg":
+        if not is_art:
             im = trim(im)
         prefix = key.split("_")[0]
         im = fit(im, MAX_DIM.get(prefix, 512))
-        if key == "ui_menu_bg":
+        if is_art:
             im = im.convert("RGB")
             im.save(os.path.join(OUT, key + ".jpg"), quality=86)
             manifest[key] = {"file": key + ".jpg", "w": im.size[0], "h": im.size[1]}

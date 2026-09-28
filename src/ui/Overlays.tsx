@@ -1,4 +1,6 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { sound } from '../audio/sound';
 import { RES_NAMES } from '../game/data';
 import type { Res } from '../game/types';
 import type { GameEvent, World } from '../game/world';
@@ -29,9 +31,10 @@ function MenuButton({ label, onPress, primary }: { label: string; onPress: () =>
 }
 
 export function PauseOverlay({ speed, onSpeed, onResume, onRestart, onExit }: { speed: number; onSpeed: (v: number) => void; onResume: () => void; onRestart: () => void; onExit: () => void }) {
+  const [, force] = useState(0);
   return (
     <View style={s.backdrop}>
-      <View style={s.card}>
+      <ScrollView style={s.cardScroll} contentContainerStyle={s.card} showsVerticalScrollIndicator={false}>
         <Text style={s.title}>Duraklatıldı</Text>
         <Text style={s.label}>Oyun Hızı</Text>
         <View style={s.speedRow}>
@@ -41,10 +44,18 @@ export function PauseOverlay({ speed, onSpeed, onResume, onRestart, onExit }: { 
             </Pressable>
           ))}
         </View>
+        <View style={s.speedRow}>
+          <Pressable onPress={() => { sound.setMusic(!sound.musicOn); force((x) => x + 1); }} style={[s.speed, sound.musicOn && s.speedOn]}>
+            <Text style={[s.speedTxt, sound.musicOn && { color: C.ink }]}>♪ Müzik</Text>
+          </Pressable>
+          <Pressable onPress={() => { sound.setSfx(!sound.sfxOn); force((x) => x + 1); }} style={[s.speed, sound.sfxOn && s.speedOn]}>
+            <Text style={[s.speedTxt, sound.sfxOn && { color: C.ink }]}>🔊 Efektler</Text>
+          </Pressable>
+        </View>
         <MenuButton label="Devam Et" primary onPress={onResume} />
         <MenuButton label="Yeniden Başlat" onPress={onRestart} />
         <MenuButton label="Ana Menü" onPress={onExit} />
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -61,7 +72,7 @@ export function EndOverlay({ world, onRestart, onExit }: { world: World; onResta
   ];
   return (
     <View style={s.backdrop}>
-      <View style={s.card}>
+      <ScrollView style={s.cardScroll} contentContainerStyle={s.card} showsVerticalScrollIndicator={false}>
         <Image source={won ? SOURCES.icon_age4 : SOURCES.bld_rubble} style={s.endImg} />
         <Text style={[s.title, { color: won ? C.goldLight : '#ff8a7a' }]}>{won ? 'ZAFER!' : 'YENİLGİ'}</Text>
         <Text style={s.sub}>{won ? 'Rakip krallık yıkıldı.' : 'Krallığın düştü.'} · {fmtTime(world.time)}</Text>
@@ -73,7 +84,7 @@ export function EndOverlay({ world, onRestart, onExit }: { world: World; onResta
         </View>
         <MenuButton label="Tekrar Oyna" primary onPress={onRestart} />
         <MenuButton label="Ana Menü" onPress={onExit} />
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -84,7 +95,8 @@ const s = StyleSheet.create({
   toastWarn: { borderColor: C.red },
   toastGood: { borderColor: C.green },
   toastTxt: { color: C.text, fontFamily: F.bodyB, fontSize: 12.5 },
-  backdrop: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 24 },
+  backdrop: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center', padding: 12 },
+  cardScroll: { width: '100%', maxWidth: 380, maxHeight: '96%', flexGrow: 0, borderRadius: 14 },
   card: { width: '100%', maxWidth: 380, backgroundColor: C.wood, borderRadius: 14, borderWidth: 2, borderColor: C.gold, padding: 20, alignItems: 'stretch' },
   title: { fontFamily: F.title, fontSize: 28, color: C.goldLight, textAlign: 'center', marginBottom: 6 },
   sub: { fontFamily: F.body, color: C.textDim, textAlign: 'center', marginBottom: 12 },

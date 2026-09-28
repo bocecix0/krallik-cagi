@@ -163,6 +163,83 @@ BATCHES3 = {
 }
 BATCHES.update(BATCHES3)
 
+# ---- wave 4: directional (back-facing) views + walk frames for a pseudo-3D look ----
+BACK = (STYLE + " Single full-body character game sprite. SAME CHARACTER, outfit, colors, proportions and painterly style as the attached "
+        "reference image, but now seen FROM BEHIND: the character faces NORTH-EAST (away from the viewer, toward the top-right of the screen), "
+        "so we mainly see the back and the right side; standing idle. Same scale as the reference. ")
+WALK = (STYLE + " Single full-body character game sprite. SAME CHARACTER, outfit, colors, proportions and painterly style as the attached "
+        "reference image, facing SOUTH-EAST (toward the viewer's bottom-right) exactly like the reference, but WALKING: mid-stride, left leg forward, "
+        "arms swinging naturally. Same scale as the reference. ")
+BACKWALK = (STYLE + " Single full-body character game sprite. SAME CHARACTER, outfit, colors and painterly style as the attached reference image, "
+            "seen FROM BEHIND facing NORTH-EAST (away from the viewer, toward the top-right), WALKING mid-stride. Same scale as the reference. ")
+HORSEWALK = (STYLE + " Single mounted-unit game sprite. SAME rider, horse, colors and painterly style as the attached reference image, facing "
+             "SOUTH-EAST like the reference, horse TROTTING mid-stride with legs clearly in motion. Same scale as the reference. ")
+HORSEBACK = (STYLE + " Single mounted-unit game sprite. SAME rider, horse, colors and painterly style as the attached reference image, but seen "
+             "FROM BEHIND: horse and rider face NORTH-EAST (away from the viewer, toward the top-right). Same scale as the reference. ")
+FX = ("Game visual effect sprite, painterly Age of Empires II Definitive Edition style, soft edges, fully transparent background (PNG alpha), "
+      "no text, centered, no ground. ")
+
+BATCHES4 = {
+ "dir_vil": [
+  ("unit_villager_m_ne", BACK + "Peasant man villager with axe."),
+  ("unit_villager_m_walk", WALK + "Peasant man villager with axe."),
+  ("unit_villager_m_ne_walk", BACKWALK + "Peasant man villager with axe."),
+ ],
+ "dir_vilf": [
+  ("unit_villager_f_ne", BACK + "Peasant woman villager with basket."),
+  ("unit_villager_f_ne_walk", BACKWALK + "Peasant woman villager with basket."),
+ ],
+ "dir_inf": [
+  ("unit_militia_ne", BACK + "Militia infantryman with sword and round blue shield."),
+  ("unit_militia_walk", WALK + "Militia infantryman with sword and round blue shield."),
+ ],
+ "dir_maa": [
+  ("unit_manatarms_ne", BACK + "Man-at-arms with longsword and blue heater shield."),
+  ("unit_manatarms_walk", WALK + "Man-at-arms with longsword and blue heater shield."),
+ ],
+ "dir_spear": [
+  ("unit_spearman_ne", BACK + "Spearman holding a long pike upright."),
+  ("unit_spearman_walk", WALK + "Spearman holding a long pike upright."),
+ ],
+ "dir_archer": [
+  ("unit_archer_ne", BACK + "Hooded archer with longbow and quiver."),
+  ("unit_archer_walk", WALK + "Hooded archer with longbow and quiver."),
+ ],
+ "dir_knight": [
+  ("unit_knight_ne", HORSEBACK + "Heavy knight on caparisoned warhorse."),
+  ("unit_knight_walk", HORSEWALK + "Heavy knight on caparisoned warhorse."),
+ ],
+ "dir_scout": [
+  ("unit_scout_ne", HORSEBACK + "Light scout cavalry on brown horse."),
+  ("unit_scout_walk", HORSEWALK + "Light scout cavalry on brown horse."),
+ ],
+ "fx": [
+  ("fx_smoke", FX + "A soft billowing puff of grey-white smoke, rounded cloud shape."),
+  ("fx_fire2", FX + "Burning flames with orange-yellow core and red tips, a slightly different flame shape than a typical campfire, a little dark smoke on top."),
+  ("fx_sparks", FX + "A small burst of golden sparkles and light rays, celebratory, like a technology researched or age advanced effect."),
+  ("fx_birds", FX + "A small flock of five dark birds flying, seen from above at a slight angle, wings in different flap positions."),
+  ("fx_flag", FX + "A single rally-point flag: short wooden pole with a waving ROYAL BLUE cloth banner, standing on the ground."),
+ ],
+}
+BATCHES.update(BATCHES4)
+REFS.update({
+  "dir_vil": "assets/raw/unit_villager_m.png", "dir_vilf": "assets/raw/unit_villager_f.png",
+  "dir_inf": "assets/raw/unit_militia.png", "dir_maa": "assets/raw/unit_manatarms.png", "dir_spear": "assets/raw/unit_spearman.png",
+  "dir_archer": "assets/raw/unit_archer.png", "dir_knight": "assets/raw/unit_knight.png", "dir_scout": "assets/raw/unit_scout.png",
+})
+
+BATCHES5 = {
+ "landscape": [
+  ("ui_menu_bg_land", "Epic painterly WIDESCREEN LANDSCAPE (16:9 horizontal) key art for a medieval real-time strategy game main menu, in the style of "
+   "Age of Empires II Definitive Edition cover art: on the LEFT third a knight on horseback holding a royal blue banner on a rocky hill, "
+   "the CENTER and RIGHT show a wide medieval valley with a stone castle, a river, villages, farms and forests at golden hour with dramatic clouds. "
+   "Keep the left-center sky area calm for a title, and the right third slightly darker for menu buttons. No text, no logos."),
+  ("ui_loading_land", "Painterly WIDESCREEN LANDSCAPE (16:9 horizontal) scene in the style of Age of Empires II Definitive Edition: two medieval armies, "
+   "royal blue and crimson red banners, facing each other across a misty river valley at dawn, castles on distant hills. No text, no logos."),
+ ],
+}
+BATCHES.update(BATCHES5)
+
 
 def prompt_for(items):
     lines = ["You are an asset generator. For EACH item below, in order: use your image generation tool to create the image described, "

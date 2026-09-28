@@ -4,7 +4,15 @@ import { TH, TW, toScreenX, toScreenY, viewToWorld, type Camera } from '../game/
 import { TERRAIN_COUNT, type BuildingType, type Entity } from '../game/types';
 import type { World } from '../game/world';
 import { ATLAS } from './manifest';
+import { FxSystem } from './fx';
 import { buildingKey, nodeKey, spriteSize, unitKey, type Images } from './sprites';
+
+const fxSystems = new WeakMap<World, FxSystem>();
+function fxFor(w: World) {
+  let f = fxSystems.get(w);
+  if (!f) { f = new FxSystem(); fxSystems.set(w, f); }
+  return f;
+}
 
 export interface Ghost { type: BuildingType; x: number; y: number; valid: boolean }
 export interface Marker { x: number; y: number; t: number; color: string }
@@ -26,7 +34,13 @@ const paints = {
   text: P(),
   stroke: (() => { const p = P(); p.setStyle(PaintStyle.Stroke); p.setAntiAlias(true); return p; })(),
 };
-const color = (c: string) => Skia.Color(c);
+const colorCache = new Map<string, ReturnType<typeof Skia.Color>>();
+/** Skia.Color parses the string every call; cache it (hot path: every frame, every unit). */
+const color = (c: string) => {
+  let v = colorCache.get(c);
+  if (v === undefined) { v = Skia.Color(c); colorCache.set(c, v); }
+  return v;
+};
 
 const srcCache = new WeakMap<SkImage, SkRect>();
 function srcOf(img: SkImage) {
@@ -47,6 +61,65 @@ function drawSprite(c: SkCanvas, img: SkImage | undefined, cx: number, by: numbe
     c.restore();
   } else c.drawImageRectOptions(img, src, Skia.XYWHRect(cx - w / 2, by - h, w, h), FilterMode.Linear, MipmapMode.Linear, paint);
 }
+
+const flipCache = new WeakMap<SkImage, SkImage>();
+/** Mirrored copy of a sprite (RSXform cannot flip), made once per image. */
+function flippedOf(img: SkImage): SkImage {
+  let f = flipCache.get(img);
+  if (f) return f;
+  f = img;
+  try {
+    const surf = Skia.Surface.Make(img.width(), img.height());
+    if (surf) {
+      const cv = surf.getCanvas();
+      cv.clear(Skia.Color('transparent'));
+      cv.translate(img.width(), 0);
+      cv.scale(-1, 1);
+      cv.drawImage(img, 0, 0);
+      surf.flush();
+      f = surf.makeImageSnapshot();
+    }
+  } catch {
+    f = img;
+  }
+  flipCache.set(img, f);
+  return f;
+}
+
+const SAMPLING = { filter: FilterMode.Linear, mipmap: MipmapMode.Linear };
+
+/**
+ * Collects consecutive (depth-ordered) sprites that share an image into one drawAtlas call.
+ * Forests, mines and groups of identical units become a single GPU draw instead of dozens.
+ */
+class SpriteBatch {
+  private img: SkImage | null = null;
+  private srcs: SkRect[] = [];
+  private xfs: SkRSXform[] = [];
+  draws = 0;
+  add(c: SkCanvas, img: SkImage | undefined, cx: number, by: number, w: number, flip: boolean, rotDeg = 0) {
+    if (!img) return;
+    const im = flip ? flippedOf(img) : img;
+    if (im !== this.img) { this.flush(c); this.img = im; }
+    const iw = im.width(), ih = im.height();
+    const k = w / iw;
+    const a = (rotDeg * Math.PI) / 180;
+    const sc = k * Math.cos(a), ss = k * Math.sin(a);
+    // pivot = bottom-centre of the image maps to (cx, by)
+    this.srcs.push(srcOf(im));
+    this.xfs.push(Skia.RSXform(sc, ss, cx - (sc * iw / 2 - ss * ih), by - (ss * iw / 2 + sc * ih)));
+  }
+  flush(c: SkCanvas) {
+    if (this.img && this.xfs.length) {
+      c.drawAtlas(this.img, this.srcs, this.xfs, paints.img, BlendMode.SrcOver, undefined, SAMPLING);
+      this.draws++;
+    }
+    this.img = null;
+    this.srcs = [];
+    this.xfs = [];
+  }
+}
+const batch = new SpriteBatch();
 
 function diamondPath(x: number, y: number, s: number) {
   const p = Skia.Path.Make();
@@ -240,6 +313,9 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
 
   objs.sort((a, b) => depthOf(a) - depthOf(b));
   const t = rs.time;
+  const overlays: (() => void)[] = [];
+  const visibleBuildings: Entity[] = [];
+  batch.draws = 0;
   for (const e of objs) {
     if (e.kind === 'resource') {
       const key = nodeKey(e.type);
@@ -248,13 +324,15 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
       const sway = e.type.startsWith('tree') ? Math.sin(t * 0.8 + (e.anim ?? 0)) * 0.9 : 0;
       const bob = e.type === 'sheep' || e.type === 'deer' ? Math.abs(Math.sin(t * 1.3 + (e.anim ?? 0))) * 0.8 : 0;
       const shrink = e.type === 'gold' || e.type === 'stone' || e.type === 'berry' ? 0.75 + 0.25 * Math.min(1, (e.amount ?? 0) / 150) : 1;
-      drawSprite(c, imgs[key], cx, by - bob, s.w * shrink, s.h * shrink, e.facing === -1, paints.img, sway);
+      batch.add(c, imgs[key], cx, by - bob, s.w * shrink, e.facing === -1, sway);
     } else if (e.kind === 'building') {
+      visibleBuildings.push(e);
       const key = buildingKey(e.type);
       const s = spriteSize(key, e.size);
       const cx = toScreenX(e.x + e.size, e.y + e.size), by = toScreenY(e.x + e.size, e.y + e.size) + s.oy;
       const img = e.owner === 2 ? imgs[`${key}_red`] ?? imgs[key] : imgs[key];
       if (!e.built) {
+        batch.flush(c);
         const fs = spriteSize('bld_foundation', e.size);
         drawSprite(c, imgs.bld_foundation, cx, by, fs.w, fs.h, false);
         const p = e.progress ?? 0;
@@ -267,14 +345,21 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
           paints.alpha.setAlphaf(1);
           c.restore();
         }
-      } else drawSprite(c, img, cx, by, s.w, s.h, false);
-      if (rs.selection.has(e.id) || e.hp < e.maxHp) drawHp(c, cx, by - s.h - 4, Math.min(80, e.size * 22), e.hp / e.maxHp, e.owner === 1);
+      } else batch.add(c, img, cx, by, s.w, false);
+      if (rs.selection.has(e.id) || e.hp < e.maxHp) {
+        const frac = e.hp / e.maxHp, own = e.owner === 1, top = by - s.h - 4, wd = Math.min(80, e.size * 22);
+        overlays.push(() => drawHp(c, cx, top, wd, frac, own));
+      }
       if (rs.selection.has(e.id) && e.rally && e.owner === 1) {
-        const fx = toScreenX(e.rally.x, e.rally.y), fy = toScreenY(e.rally.x, e.rally.y);
-        paints.fill.setColor(color('#2f6fe0'));
-        paints.stroke.setColor(color('#fff')); paints.stroke.setStrokeWidth(1.5);
-        c.drawLine(fx, fy, fx, fy - 18, paints.stroke);
-        c.drawRect(Skia.XYWHRect(fx, fy - 18, 10, 7), paints.fill);
+        const rally = e.rally;
+        overlays.push(() => {
+          const fx = toScreenX(rally.x, rally.y), fy = toScreenY(rally.x, rally.y);
+          if (imgs.fx_flag) { drawSprite(c, imgs.fx_flag, fx, fy + 2, 22, 30, false, paints.img, Math.sin(t * 3) * 3); return; }
+          paints.fill.setColor(color('#2f6fe0'));
+          paints.stroke.setColor(color('#fff')); paints.stroke.setStrokeWidth(1.5);
+          c.drawLine(fx, fy, fx, fy - 18, paints.stroke);
+          c.drawRect(Skia.XYWHRect(fx, fy - 18, 10, 7), paints.fill);
+        });
       }
     } else {
       const key = unitKey(e, w);
@@ -285,11 +370,20 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
       const bob = moving ? Math.abs(Math.sin(a * 1.4)) * 2.2 : Math.sin(t * 2 + e.id) * 0.3;
       const rot = e.working ? Math.sin(a * 2.2) * 2.5 : moving ? Math.sin(a * 1.4) * 2 : 0;
       const img = e.owner === 2 ? imgs[`${key}_red`] ?? imgs[key] : imgs[key];
-      drawSprite(c, img, sx, sy + 2 - bob, s.w, s.h, e.facing === -1, paints.img, rot);
-      if (rs.selection.has(e.id) || (e.hp < e.maxHp && e.owner !== 0)) drawHp(c, sx, sy - s.h - 5, 26, e.hp / e.maxHp, e.owner === 1);
+      batch.add(c, img, sx, sy + 2 - bob, s.w, e.facing === -1, rot);
+      if (rs.selection.has(e.id) || (e.hp < e.maxHp && e.owner !== 0)) {
+        const frac = e.hp / e.maxHp, own = e.owner === 1, top = sy - s.h - 5;
+        overlays.push(() => drawHp(c, sx, top, 26, frac, own));
+      }
 
     }
   }
+
+  batch.flush(c);
+  const fx = fxFor(w);
+  fx.update(w, cam, t);
+  fx.drawWorld(c, w, imgs, t, visibleBuildings);
+  for (const o of overlays) o();
 
   // projectiles
   paints.stroke.setColor(color('#3b2a18')); paints.stroke.setStrokeWidth(1.6);
@@ -309,6 +403,7 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
   }
 
   if (atlas) drawFog(c, w, atlas);
+  fx.drawAmbient(c, w, cam, imgs, t);
 
   // move markers
   for (const m of rs.markers) {

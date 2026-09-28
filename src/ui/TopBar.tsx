@@ -3,7 +3,10 @@ import { SOURCES } from '../render/manifest';
 import type { Res, Resources } from '../game/types';
 import { C, F } from './theme';
 
+export const TOP_H = 38;
+
 interface Props {
+  extra?: React.ReactNode;
   res: Resources;
   workers: Record<Res, number>;
   pop: number;
@@ -21,7 +24,7 @@ export function fmtTime(t: number) {
 }
 
 /** Single-row resource bar. The small number under each amount is how many villagers work that resource. */
-export function TopBar({ res, workers, pop, cap, onMenu, onRes }: Props) {
+export function TopBar({ res, workers, pop, cap, onMenu, onRes, extra }: Props) {
   const popFull = pop >= cap;
   return (
     <View style={s.wrap}>
@@ -38,6 +41,7 @@ export function TopBar({ res, workers, pop, cap, onMenu, onRes }: Props) {
         <Image source={SOURCES.icon_pop} style={s.icon} />
         <Text style={[s.num, popFull && { color: C.warn }]}>{pop}/{cap}</Text>
       </View>
+      {extra}
       <Pressable onPress={onMenu} hitSlop={10} style={({ pressed }) => [s.menu, pressed && { opacity: 0.6 }]}>
         <Text style={s.menuTxt}>≡</Text>
       </Pressable>

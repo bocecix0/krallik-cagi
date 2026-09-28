@@ -1,4 +1,5 @@
 import * as Haptics from 'expo-haptics';
+import { sound } from '../audio/sound';
 import { Platform } from 'react-native';
 import { EnemyAI } from '../game/ai';
 import { BUILDINGS } from '../game/data';
@@ -28,6 +29,8 @@ export class Controller {
   private lastTap = { t: 0, id: -1 };
   /** timestamp (performance.now) of the last touch on the map; drives the adaptive frame rate */
   lastInput = 0;
+  /** kinetic scrolling velocity (view px / s) after a flick */
+  fling = { vx: 0, vy: 0 };
   private idleIdx = 0;
   /** increments whenever selection/mode changes so the HUD refreshes immediately */
   rev = 0;
@@ -61,6 +64,13 @@ export class Controller {
   select(list: Entity[]) { this.sel = new Set(list.map((e) => e.id)); this.rev++; }
 
   tick(dt: number) {
+    if (this.fling.vx || this.fling.vy) {
+      this.panBy(this.fling.vx * dt, this.fling.vy * dt);
+      const decay = Math.exp(-4.5 * dt);
+      this.fling.vx *= decay; this.fling.vy *= decay;
+      if (Math.hypot(this.fling.vx, this.fling.vy) < 25) this.fling = { vx: 0, vy: 0 };
+      this.lastInput = performance.now();
+    }
     if (!this.paused) this.w.update(dt * this.speed);
     this.markers = this.markers.filter((m) => (m.t += dt) < 0.8);
   }
@@ -89,13 +99,14 @@ export class Controller {
     }
     const villagerAction = hit && hit.owner === 1 && hit.kind === 'building' && vills.length > 0 &&
       (!hit.built || hit.hp < hit.maxHp || hit.type === 'farm' || (vills.some((v) => v.carry && (BUILDINGS[hit.type as BuildingType].drop ?? []).includes(v.carry.type))));
-    if (hit && hit.owner === 1 && !villagerAction) { this.select([hit]); haptic(); return; }
+    if (hit && hit.owner === 1 && !villagerAction) { this.select([hit]); haptic(); sound.play('select'); return; }
     if (ownUnits.length) {
       const kind = this.w.command(ownUnits, tile.x, tile.y, hit);
       const col = kind === 'attack' ? '#ff5a4a' : kind === 'gather' || kind === 'build' || kind === 'return' ? '#ffd54a' : '#7dff8a';
       if (hit) this.marker(hit.kind === 'unit' ? hit.x : hit.x + hit.size / 2, hit.kind === 'unit' ? hit.y : hit.y + hit.size / 2, col);
       else this.marker(tile.x, tile.y, col);
       haptic();
+      sound.play('command');
       return;
     }
     const prod = sel.find((e) => e.kind === 'building' && e.owner === 1 && BUILDINGS[e.type as BuildingType].trains);

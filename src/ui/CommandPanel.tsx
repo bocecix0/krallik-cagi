@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Image, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { BUILDINGS, RES_NAMES, costText } from '../game/data';
 import type { Cost, Entity, Res, TechId } from '../game/types';
+import { sound } from '../audio/sound';
 import { SOURCES } from '../render/manifest';
 import { bldIcon, buildButtons, entityIcon, entityName, taskLabel, techIcon, unitIcon, type Btn } from './commands';
 import type { Controller } from './controller';
@@ -11,7 +12,7 @@ export const PANEL_H = 128;
 const RES_ICON: Record<Res, number> = { food: SOURCES.icon_food, wood: SOURCES.icon_wood, gold: SOURCES.icon_gold, stone: SOURCES.icon_stone };
 
 /** Compact bottom action bar: one-line selection strip + horizontally scrolling command row. */
-export function CommandPanel({ ctl }: { ctl: Controller }) {
+export function CommandPanel({ ctl, card }: { ctl: Controller; card?: boolean }) {
   const [tab, setTab] = useState<'eco' | 'mil'>('eco');
   const [tip, setTip] = useState<{ text: string; warn?: boolean } | null>(null);
   const armed = useRef<{ key: string; t: number } | null>(null);
@@ -30,7 +31,7 @@ export function CommandPanel({ ctl }: { ctl: Controller }) {
   if (ctl.ghost) {
     const d = BUILDINGS[ctl.ghost.type];
     return (
-      <View style={s.bar}>
+      <View style={[s.bar, card && s.cardBar]}>
         <View style={s.placeRow}>
           <Image source={bldIcon(ctl.ghost.type)} style={s.placeImg} />
           <View style={{ flex: 1 }}>
@@ -63,11 +64,12 @@ export function CommandPanel({ ctl }: { ctl: Controller }) {
     }
     if (b.cost && !w.canAfford(1, b.cost)) { showTip(`${b.label}: yetersiz kaynak (${costText(b.cost)})`, 2000, true); return; }
     showTip(`${b.label}${b.cost ? ' — ' + costText(b.cost) : ''}`, 1200);
+    sound.play('click');
     b.onPress();
   };
 
   return (
-    <View style={s.bar}>
+    <View style={[s.bar, card && s.cardBar]}>
       {tip && (
         <View style={[s.tip, tip.warn && s.tipWarn]} pointerEvents="none">
           <Text style={s.tipTxt}>{tip.text}</Text>
@@ -186,6 +188,7 @@ function SelectionStrip({ ctl, sel }: { ctl: Controller; sel: Entity[] }) {
 
 const s = StyleSheet.create({
   bar: { backgroundColor: C.wood, borderTopWidth: 2, borderColor: C.goldDark, paddingTop: 5, paddingBottom: 4, height: PANEL_H },
+  cardBar: { borderTopWidth: 0, backgroundColor: 'rgba(36,26,18,0.94)' },
   strip: { height: 44, flexDirection: 'row', alignItems: 'center', paddingHorizontal: 8, gap: 8 },
   stripScroll: { height: 44, flexGrow: 0 },
   portrait: { width: 40, height: 40, borderRadius: 7, borderWidth: 2, backgroundColor: '#1a130d', alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },

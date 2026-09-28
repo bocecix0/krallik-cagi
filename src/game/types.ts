@@ -80,6 +80,10 @@ export interface Entity {
   working?: boolean;
   female?: boolean;
   lastHit?: number;
+  /** true while the unit faces "up" the screen (north-east / north-west back view) */
+  back?: boolean;
+  /** countdown to the next tool-strike sound while working */
+  hitT?: number;
   /** id of the building this unit is sheltering in */
   garrisonedIn?: number;
 }
@@ -110,6 +114,9 @@ export interface Projectile {
   splash?: number;
   kind?: 'arrow' | 'stone';
 }
+
+/** one-shot visual effect requested by the simulation (consumed by the renderer) */
+export interface FxEvent { kind: 'dust' | 'sparks' | 'impact' | 'collapse'; x: number; y: number; size: number }
 
 export interface FloatText { x: number; y: number; text: string; color: string; t: number }
 

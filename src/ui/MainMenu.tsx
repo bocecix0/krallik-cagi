@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MapStyle } from '../game/mapgen';
 import type { Difficulty } from '../game/types';
@@ -32,71 +32,98 @@ const TIPS: [string, string][] = [
 
 export function MainMenu({ progress, ready, onStart }: Props) {
   const insets = useSafeAreaInsets();
+  const win = useWindowDimensions();
   const [step, setStep] = useState<'home' | 'setup' | 'help'>('home');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [style, setStyle] = useState<MapStyle>('goller');
 
+  const land = win.width > win.height;
+  const content = (
+    <>
+      {step === 'home' && (
+        <>
+          <Btn primary label={ready ? 'Oyna' : `Yükleniyor %${Math.floor(progress * 100)}`} disabled={!ready} onPress={() => setStep('setup')} />
+          <Btn label="Nasıl Oynanır" onPress={() => setStep('help')} />
+          {!ready && <View style={s.bar}><View style={[s.barFill, { width: `${progress * 100}%` }]} /></View>}
+        </>
+      )}
+      {step === 'setup' && (
+        <View style={s.card}>
+          <Text style={s.cardTitle}>Serbest Oyun</Text>
+          <Text style={s.label}>Zorluk</Text>
+          <View style={s.row}>
+            <Chip value="easy" cur={difficulty} label="Kolay" onPress={setDifficulty} />
+            <Chip value="normal" cur={difficulty} label="Normal" onPress={setDifficulty} />
+            <Chip value="hard" cur={difficulty} label="Zor" onPress={setDifficulty} />
+          </View>
+          <Text style={s.label}>Harita</Text>
+          <View style={s.row}>
+            <Chip value="goller" cur={style} label="Göller" onPress={setStyle} />
+            <Chip value="anadolu" cur={style} label="Anadolu Bozkırı" onPress={setStyle} />
+          </View>
+          <View style={s.civ}>
+            <Image source={SOURCES.unit_knight} style={s.civImg} />
+            <View style={{ flex: 1 }}>
+              <Text style={s.civName}>Mavi Krallık</Text>
+              <Text style={s.civDesc}>Sen · Rakip: Kızıl Krallık (Yapay Zekâ)</Text>
+            </View>
+            <Image source={SOURCES.unit_knight_red} style={[s.civImg, { transform: [{ scaleX: -1 }] }]} />
+          </View>
+          <View style={land ? s.row : undefined}>
+            <View style={land ? { flex: 1 } : undefined}><Btn label="Geri" onPress={() => setStep('home')} /></View>
+            <View style={land ? { flex: 2 } : undefined}>
+              <Btn primary label="Savaşa Başla" onPress={() => onStart({ difficulty, style, seed: Math.floor(Math.random() * 1e9) })} />
+            </View>
+          </View>
+        </View>
+      )}
+      {step === 'help' && (
+        <View style={[s.card, { maxHeight: land ? win.height - 40 : 460 }]}>
+          <Text style={s.cardTitle}>Nasıl Oynanır</Text>
+          <ScrollView style={{ flexShrink: 1 }}>
+            {TIPS.map(([icon, txt]) => (
+              <View key={icon} style={s.tip}>
+                <Image source={SOURCES[icon]} style={s.tipImg} />
+                <Text style={s.tipTxt}>{txt}</Text>
+              </View>
+            ))}
+          </ScrollView>
+          <Btn label="Geri" onPress={() => setStep('home')} />
+        </View>
+      )}
+    </>
+  );
+  const title = (
+    <View style={s.titleWrap}>
+      <Text style={s.kicker}>— BİR STRATEJİ DESTANI —</Text>
+      <Text style={[s.title, land && { fontSize: 42, lineHeight: 50 }]}>Krallıklar</Text>
+      <Text style={[s.title2, land && { fontSize: 38, lineHeight: 44 }]}>Çağı</Text>
+      <View style={s.rule} />
+      <Text style={s.tag}>İzometrik · Gerçek zamanlı strateji</Text>
+    </View>
+  );
+  const bg = SOURCES.ui_menu_bg_land && land ? SOURCES.ui_menu_bg_land : SOURCES.ui_menu_bg;
+
+  if (land) {
+    return (
+      <ImageBackground source={bg} style={s.bg} resizeMode="cover">
+        <View style={s.shade} />
+        <View style={[s.landRow, { paddingLeft: insets.left + 24, paddingRight: insets.right + 20, paddingTop: insets.top + 12, paddingBottom: insets.bottom + 12 }]}>
+          <View style={s.landTitle}>{title}</View>
+          <ScrollView style={s.landPanel} contentContainerStyle={s.landPanelInner} showsVerticalScrollIndicator={false}>
+            {content}
+          </ScrollView>
+        </View>
+      </ImageBackground>
+    );
+  }
+
   return (
-    <ImageBackground source={SOURCES.ui_menu_bg} style={s.bg} resizeMode="cover">
+    <ImageBackground source={bg} style={s.bg} resizeMode="cover">
       <View style={s.shade} />
       <View style={[s.content, { paddingTop: insets.top + 40, paddingBottom: insets.bottom + 24 }]}>
-        <View style={s.titleWrap}>
-          <Text style={s.kicker}>— BİR STRATEJİ DESTANI —</Text>
-          <Text style={s.title}>Krallıklar</Text>
-          <Text style={s.title2}>Çağı</Text>
-          <View style={s.rule} />
-          <Text style={s.tag}>Dikey · İzometrik · Gerçek zamanlı strateji</Text>
-        </View>
-
-        <View style={s.bottom}>
-          {step === 'home' && (
-            <>
-              <Btn primary label={ready ? 'Oyna' : `Yükleniyor %${Math.floor(progress * 100)}`} disabled={!ready} onPress={() => setStep('setup')} />
-              <Btn label="Nasıl Oynanır" onPress={() => setStep('help')} />
-              {!ready && <View style={s.bar}><View style={[s.barFill, { width: `${progress * 100}%` }]} /></View>}
-            </>
-          )}
-          {step === 'setup' && (
-            <View style={s.card}>
-              <Text style={s.cardTitle}>Serbest Oyun</Text>
-              <Text style={s.label}>Zorluk</Text>
-              <View style={s.row}>
-                <Chip value="easy" cur={difficulty} label="Kolay" onPress={setDifficulty} />
-                <Chip value="normal" cur={difficulty} label="Normal" onPress={setDifficulty} />
-                <Chip value="hard" cur={difficulty} label="Zor" onPress={setDifficulty} />
-              </View>
-              <Text style={s.label}>Harita</Text>
-              <View style={s.row}>
-                <Chip value="goller" cur={style} label="Göller" onPress={setStyle} />
-                <Chip value="anadolu" cur={style} label="Anadolu Bozkırı" onPress={setStyle} />
-              </View>
-              <View style={s.civ}>
-                <Image source={SOURCES.unit_knight} style={s.civImg} />
-                <View style={{ flex: 1 }}>
-                  <Text style={s.civName}>Mavi Krallık</Text>
-                  <Text style={s.civDesc}>Sen · Rakip: Kızıl Krallık (Yapay Zekâ)</Text>
-                </View>
-                <Image source={SOURCES.unit_knight_red} style={[s.civImg, { transform: [{ scaleX: -1 }] }]} />
-              </View>
-              <Btn primary label="Savaşa Başla" onPress={() => onStart({ difficulty, style, seed: Math.floor(Math.random() * 1e9) })} />
-              <Btn label="Geri" onPress={() => setStep('home')} />
-            </View>
-          )}
-          {step === 'help' && (
-            <View style={[s.card, { maxHeight: 460 }]}>
-              <Text style={s.cardTitle}>Nasıl Oynanır</Text>
-              <ScrollView>
-                {TIPS.map(([icon, txt]) => (
-                  <View key={icon} style={s.tip}>
-                    <Image source={SOURCES[icon]} style={s.tipImg} />
-                    <Text style={s.tipTxt}>{txt}</Text>
-                  </View>
-                ))}
-              </ScrollView>
-              <Btn label="Geri" onPress={() => setStep('home')} />
-            </View>
-          )}
-        </View>
+        {title}
+        <View style={s.bottom}>{content}</View>
       </View>
     </ImageBackground>
   );
@@ -121,6 +148,10 @@ const s = StyleSheet.create({
   rule: { width: 180, height: 2, backgroundColor: C.gold, marginVertical: 10, opacity: 0.8 },
   tag: { fontFamily: F.body, color: C.parchment, fontSize: 14, textShadowColor: '#000', textShadowRadius: 6 },
   bottom: { gap: 10 },
+  landRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 20 },
+  landTitle: { flex: 1, minWidth: 0, flexShrink: 1, alignItems: 'center', justifyContent: 'center' },
+  landPanel: { width: 360, maxWidth: '48%', flexGrow: 0 },
+  landPanelInner: { flexGrow: 1, justifyContent: 'center', gap: 10, paddingVertical: 6 },
   btn: { height: 56, borderRadius: 12, borderWidth: 1.5, borderColor: C.gold, backgroundColor: 'rgba(28,20,12,0.88)', alignItems: 'center', justifyContent: 'center' },
   btnPrimary: { backgroundColor: C.gold, borderColor: C.goldLight, shadowColor: C.gold, shadowOpacity: 0.5, shadowRadius: 12 },
   btnTxt: { fontFamily: F.head, fontSize: 18, color: C.text, letterSpacing: 1 },

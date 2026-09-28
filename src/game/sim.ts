@@ -1,7 +1,7 @@
 import { BUILD_RANGE, BUILDINGS, NODES, UNITS } from './data';
 import { rectDist } from './pathfinding';
 import type { BuildingType, Entity, Res, ResourceNodeType, TechId, UnitType } from './types';
-import type { World } from './world';
+import { face, type World } from './world';
 
 const RES_COLOR: Record<Res, string> = { food: '#ff8a7a', wood: '#d9a86c', gold: '#ffd54a', stone: '#c9cdd4' };
 
@@ -21,6 +21,7 @@ export function damage(w: World, attacker: Entity | null, target: Entity, amount
   if (target.owner === 1 && attacker && (target.kind === 'building' || target.type === 'villager') && w.time - lastAlarm > 12) {
     lastAlarm = w.time;
     w.event(target.kind === 'building' ? 'Binalarınız saldırı altında!' : 'Köylüleriniz saldırı altında!', 'warn', target.x, target.y);
+    w.sound('alert');
   }
   if (target.kind === 'unit' && attacker && target.order?.kind === 'idle' && target.type !== 'villager' && target.type !== 'monk') {
     w.setOrder(target, { kind: 'attack', target: attacker.id });
@@ -53,6 +54,7 @@ function fire(w: World, from: { x: number; y: number }, owner: number, t: Entity
   const d = Math.hypot(c.x - from.x, c.y - from.y);
   const speed = splash ? 4.5 : 7;
   w.projectiles.push({ x: from.x, y: from.y, tx: c.x, ty: c.y, target: t.id, damage: dmg, speed, owner, life: 0, total: Math.max(0.15, d / speed), splash, kind: splash ? 'stone' : 'arrow' });
+  if (!splash) w.sound('arrow', from.x, from.y);
 }
 
 function findEnemyNear(w: World, u: Entity, radius: number, unitsOnly = false) {
@@ -107,14 +109,17 @@ function updateUnit(w: World, u: Entity, dt: number) {
       if (inRange) {
         u.path = [];
         const c = w.centerOf(t);
-        if (Math.abs(c.x - u.x - (c.y - u.y)) > 0.05) u.facing = c.x - u.x - (c.y - u.y) >= 0 ? 1 : -1;
+        face(u, c.x - u.x, c.y - u.y);
         u.working = true;
         u.anim = (u.anim ?? 0) + dt * 6;
         if (u.attackCd! <= 0) {
           u.attackCd = st.reload;
           const dmg = computeDamage(w, u, t);
           if (st.range > 0) fire(w, { x: u.x, y: u.y }, u.owner, t, dmg, UNITS[u.type as UnitType].splash ?? 0);
-          else damage(w, u, t, dmg);
+          else {
+            damage(w, u, t, dmg);
+            w.sound(u.type === 'ram' ? 'impact' : u.type === 'villager' ? 'hammer' : 'sword', u.x, u.y);
+          }
         }
       } else {
         w.moveTo(u, w.rectOf(t), st.range > 0 ? Math.max(1, Math.floor(st.range)) : 1, dt, st.speed, t.kind === 'unit');
@@ -174,8 +179,16 @@ function gather(w: World, u: Entity, targetId: number, dt: number, speed: number
   u.anim = (u.anim ?? 0) + dt * 5;
   if (!isFarm) {
     const dx = t.x + 0.5 - u.x, dy = t.y + 0.5 - u.y;
-    if (Math.abs(dx - dy) > 0.05) u.facing = dx - dy >= 0 ? 1 : -1;
+    face(u, dx, dy);
     stepToward(u, t.x + 0.5, t.y + 0.5, 0.7, speed * dt);
+  }
+  if (u.owner === 1 && !isFarm) {
+    u.hitT = (u.hitT ?? Math.random()) - dt;
+    if (u.hitT <= 0) {
+      u.hitT = 1.05;
+      const snd = res === 'wood' ? 'chop' : res === 'gold' || res === 'stone' ? 'mine' : '';
+      if (snd) w.sound(snd, u.x, u.y);
+    }
   }
   const amt = Math.min(w.gatherRate(u.owner, t) * dt, t.amount!);
   t.amount! -= amt;
@@ -225,11 +238,15 @@ function build(w: World, u: Entity, id: number, dt: number, speed: number) {
   u.working = true;
   u.anim = (u.anim ?? 0) + dt * 6;
   const c = w.centerOf(b);
-  if (Math.abs(c.x - u.x - (c.y - u.y)) > 0.05) u.facing = c.x - u.x - (c.y - u.y) >= 0 ? 1 : -1;
+  face(u, c.x - u.x, c.y - u.y);
   if (!d.walkable) {
     // hug the wall: nearest point of the footprint
     const nx = Math.max(b.x, Math.min(b.x + b.size, u.x)), ny = Math.max(b.y, Math.min(b.y + b.size, u.y));
     stepToward(u, nx, ny, 0.32, speed * dt);
+  }
+  if (u.owner === 1) {
+    u.hitT = (u.hitT ?? Math.random()) - dt;
+    if (u.hitT <= 0) { u.hitT = 0.85; w.sound('hammer', u.x, u.y); }
   }
   if (!b.built) {
     const inc = dt / d.time;
@@ -237,6 +254,8 @@ function build(w: World, u: Entity, id: number, dt: number, speed: number) {
     b.hp = Math.min(b.maxHp, b.hp + inc * b.maxHp);
     if (b.progress >= 1) {
       b.built = true;
+      w.fxAt('dust', b.x + b.size / 2, b.y + b.size / 2, b.size * 0.8);
+      if (b.owner === 1) w.sound('built', b.x + b.size / 2, b.y + b.size / 2);
       w.players[b.owner].stats.built++;
       w.recountPop();
       if (b.owner === 1) w.event(`${d.name} tamamlandı`, 'good', b.x, b.y);
@@ -274,7 +293,7 @@ function updateBuilding(w: World, b: Entity, dt: number) {
       if (q.progress >= q.time) {
         b.queue!.shift();
         if (q.kind === 'unit') spawnTrained(w, b, q.id as UnitType);
-        else w.applyTech(b.owner, q.id as TechId);
+        else { w.applyTech(b.owner, q.id as TechId); if (b.owner === 1) w.fxAt('sparks', b.x + b.size / 2, b.y + b.size / 2, b.size); }
       }
     }
   }
@@ -302,13 +321,40 @@ function spawnTrained(w: World, b: Entity, t: UnitType) {
   const u = w.spawnUnit(t, b.owner, sp.x + 0.5, sp.y + 0.5);
   w.players[b.owner].stats.trained++;
   w.recountPop();
+  if (!b.rally && t === 'villager' && b.owner === 1) autoWork(w, u, b);
   if (b.rally) {
     const tx = Math.floor(b.rally.x), ty = Math.floor(b.rally.y);
     const target = w.inBounds(tx, ty) ? w.get(w.occ[w.idx(tx, ty)]) : undefined;
     if (t === 'villager' && target?.kind === 'resource') w.setOrder(u, { kind: 'gather', target: target.id });
     else w.setOrder(u, { kind: 'move', x: b.rally.x, y: b.rally.y });
   }
-  if (b.owner === 1) w.event(`${UNITS[t].name} hazır`, 'info');
+  if (b.owner === 1) { w.event(`${UNITS[t].name} hazır`, 'info'); w.sound('trained', b.x + b.size / 2, b.y + b.size / 2); }
+}
+
+/** Mobile quality-of-life: a new villager without a rally point goes to the resource the economy lacks most. */
+function autoWork(w: World, u: Entity, tc: Entity) {
+  const counts: Record<Res, number> = { food: 0, wood: 0, gold: 0, stone: 0 };
+  let total = 0;
+  for (const e of w.entities.values()) {
+    if (e.owner !== u.owner || e.type !== 'villager' || e === u) continue;
+    const o = e.order;
+    const r = o?.kind === 'gather' ? w.get(o.target)?.resType : o?.kind === 'return' ? e.carry?.type : undefined;
+    if (r) { counts[r]++; total++; }
+  }
+  const age = w.players[u.owner].age;
+  const want: Record<Res, number> = age === 0 ? { food: 0.6, wood: 0.4, gold: 0, stone: 0 } : { food: 0.45, wood: 0.35, gold: 0.2, stone: 0 };
+  const order = (Object.keys(want) as Res[]).filter((r) => want[r] > 0).sort((a, b) => (counts[a] - want[a] * (total + 1)) - (counts[b] - want[b] * (total + 1)));
+  const c = w.centerOf(tc);
+  for (const r of order) {
+    if (r === 'food') {
+      // an unworked own farm first, then berries / sheep near the town centre
+      const farm = [...w.entities.values()].find((f) => f.type === 'farm' && f.owner === u.owner && f.built &&
+        ![...w.entities.values()].some((v) => v.order?.kind === 'gather' && v.order.target === f.id));
+      if (farm) { w.setOrder(u, { kind: 'gather', target: farm.id }); return; }
+    }
+    const node = w.nearestNode(r, c.x, c.y, 14);
+    if (node) { w.setOrder(u, { kind: 'gather', target: node.id }); return; }
+  }
 }
 
 function updateProjectiles(w: World, dt: number) {
@@ -325,7 +371,8 @@ function updateProjectiles(w: World, dt: number) {
           const d = Math.hypot(c.x - p.tx, c.y - p.ty) - (e.kind === 'building' ? e.size / 2 : 0);
           if (d <= p.splash) damage(w, null, e, e === t ? p.damage : Math.max(1, Math.round(p.damage * 0.5)));
         }
-        w.float(p.tx, p.ty, '💥', '#fff');
+        w.fxAt('impact', p.tx, p.ty, p.splash);
+        w.sound('impact', p.tx, p.ty);
       } else if (t && !t.dead) damage(w, null, t, p.damage);
       return false;
     }

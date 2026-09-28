@@ -45,30 +45,47 @@ function villagerJob(e: Entity, w?: World): string {
   return e.female ? 'forager' : 'hunter';
 }
 
-/** Chooses the sprite for a unit, including 2-frame task/attack/walk animations. */
+/** Picks a directional variant: back view (`_ne`) when facing up the screen, plus an optional walk frame. */
+function directional(base: string, back: boolean, walkPhase: boolean | null): string {
+  if (back) {
+    const ne = base + '_ne';
+    if (!has(ne)) return base;
+    if (walkPhase && has(ne + '_walk')) return ne + '_walk';
+    return ne;
+  }
+  if (walkPhase && has(base + '_walk')) return base + '_walk';
+  return base;
+}
+
+/**
+ * Chooses the sprite for a unit: 4 isometric facings (front/back x mirror), 2-frame walk cycle,
+ * task poses for villagers and a strike frame for soldiers.
+ */
 export function unitKey(e: Entity, w?: World): string {
   const a = e.anim ?? 0;
+  const moving = !!e.path?.length;
+  const step = moving ? Math.sin(a * 1.4) > 0 : null;
   if (e.type === 'villager') {
     const base = e.female ? 'unit_villager_f' : 'unit_villager_m';
     if (e.working) {
       const job = villagerJob(e, w);
       if (job) return pick2(`unit_${e.female ? 'vilf' : 'vil'}_${job}`, base, Math.sin(a * 2.2) > -0.3);
     }
-    const moving = !!e.path?.length;
-    if (e.carry && e.carry.amount >= 3 && moving) {
-      if (e.female) return pick2('unit_vilf_walk', base, Math.sin(a * 1.4) > 0);
+    if (moving && !e.back && e.carry && e.carry.amount >= 3 && !e.female) {
+      // loaded villagers walking toward the camera show what they carry
       const k = e.carry.type === 'wood' ? 'unit_villager_carry' : `unit_vil_carry_${e.carry.type}`;
-      if (has(k)) return k;
+      if (has(k)) return step ? k : directional(base, false, true);
     }
-    if (moving && e.female) return pick2('unit_vilf_walk', base, Math.sin(a * 1.4) > 0);
-    return base;
+    if (moving && !e.back && e.female) return pick2('unit_vilf_walk', base, !!step);
+    return directional(base, !!e.back, step);
   }
   const base = `unit_${e.type}`;
   if (e.working && e.order?.kind === 'attack') {
     const reload = UNITS[e.type as UnitType]?.reload ?? 2;
-    return pick2(`${base}_atk`, base, (e.attackCd ?? 0) > reload - 0.45);
+    if ((e.attackCd ?? 0) > reload - 0.45 && has(`${base}_atk`)) return `${base}_atk`;
+    return directional(base, !!e.back, null);
   }
-  return base;
+  return directional(base, !!e.back, step);
 }
 
 export function nodeKey(type: string): string {
@@ -93,7 +110,7 @@ export function spriteSize(key: string, footprint?: number) {
     const w = footprint * 64 * (footprint === 1 ? 1.15 : 1.06);
     return { w, h: w / aspect, oy: footprint * 1.5 };
   }
-  const s = SPEC[key] ?? { h: 40 };
+  const s = SPEC[key] ?? SPEC[key.replace(/_(ne_walk|ne|walk)$/, '')] ?? { h: 40 };
   if (s.w) return { w: s.w, h: s.w / aspect, oy: s.oy ?? 0 };
   const h = s.h ?? 40;
   return { w: h * aspect, h, oy: s.oy ?? 0 };

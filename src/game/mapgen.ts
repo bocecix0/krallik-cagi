@@ -8,6 +8,8 @@ export interface MapGenResult {
   starts: { x: number; y: number }[];
 }
 export type MapStyle = 'anadolu' | 'goller';
+/** landscape: players face each other left/right on screen; portrait: top/bottom */
+export type MapLayout = 'landscape' | 'portrait';
 
 export function mulberry32(seed: number): () => number {
   let state = seed >>> 0;
@@ -19,15 +21,22 @@ const cluster7 = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1]];
 const cluster5 = [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]];
 const cluster4 = [[0, 0], [1, 0], [0, 1], [1, 1]];
 
-export function generateMap(size: number, seed: number, style: MapStyle): MapGenResult {
+export function generateMap(size: number, seed: number, style: MapStyle, layout: MapLayout = 'landscape'): MapGenResult {
   const n = Math.max(16, Math.floor(size)); const rng = mulberry32(seed); const terrain = new Uint8Array(n * n); terrain.fill(T.Grass);
   const occupied = new Uint8Array(n * n); const nodes: { type: ResourceNodeType; x: number; y: number }[] = [];
   const idx = (x: number, y: number): number => y * n + x;
   const inside = (x: number, y: number): boolean => x >= 0 && y >= 0 && x < n && y < n;
   const centerDist = (x: number, y: number, s: { x: number; y: number }): number => Math.hypot(x - (s.x + 2), y - (s.y + 2));
   const jitter = Math.floor(rng() * 5) - 2;
-  const p1 = Math.max(2, Math.min(n - 6, Math.floor(n * 0.72) + jitter));
-  const starts = [{ x: p1, y: p1 }, { x: n - 4 - p1, y: n - 4 - p1 }];
+  const clampS = (v: number): number => Math.max(2, Math.min(n - 6, v));
+  // screen x ∝ (x - y), screen y ∝ (x + y): landscape puts player 1 on the left, portrait at the bottom
+  const a = clampS(Math.floor(n * (layout === 'landscape' ? 0.24 : 0.72)) + jitter);
+  const b = clampS(Math.floor(n * 0.72) - (layout === 'landscape' ? jitter : -jitter));
+  const starts = layout === 'landscape' ? [{ x: a, y: b }, { x: n - 4 - a, y: n - 4 - b }] : [{ x: a, y: a }, { x: n - 4 - a, y: n - 4 - a }];
+  const axis = { x: starts[1].x - starts[0].x, y: starts[1].y - starts[0].y };
+  const axisLen = Math.hypot(axis.x, axis.y) || 1;
+  /** signed distance from the line halfway between the players (keeps the middle open) */
+  const midDist = (x: number, y: number): number => ((x - n / 2) * axis.x + (y - n / 2) * axis.y) / axisLen;
   const protectedTile = (x: number, y: number): boolean => starts.some((s) => x >= s.x - 1 && x <= s.x + 4 && y >= s.y - 1 && y <= s.y + 4);
   const clearOfStarts = (x: number, y: number, radius: number): boolean => starts.every((s) => centerDist(x, y, s) > radius);
   const hash = (x: number, y: number, salt: number): number => { let v = Math.imul(x + salt, 374761393) ^ Math.imul(y - salt, 668265263) ^ seed; v = Math.imul(v ^ (v >>> 13), 1274126177); return ((v ^ (v >>> 16)) >>> 0) / 4294967296; };
@@ -54,7 +63,7 @@ export function generateMap(size: number, seed: number, style: MapStyle): MapGen
     let placed = false;
     for (let tries = 0; tries < 80 && !placed; tries++) {
       const x = 5 + Math.floor(rng() * (n - 10)); const y = 5 + Math.floor(rng() * (n - 10));
-      if (clearOfStarts(x, y, 12) && Math.abs((x + y) - n) > 4) { paintLake(x, y, style === 'goller' ? 2 + Math.floor(rng() * 2) : 2); placed = true; }
+      if (clearOfStarts(x, y, 12) && Math.abs(midDist(x, y)) > 3) { paintLake(x, y, style === 'goller' ? 2 + Math.floor(rng() * 2) : 2); placed = true; }
     }
   }
   const land = (x: number, y: number): boolean => inside(x, y) && terrain[idx(x, y)] >= T.Dirt;

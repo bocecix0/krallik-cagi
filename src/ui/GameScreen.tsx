@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useRef, useState } from 'react';
-import { Image, Pressable, StyleSheet, Text, View, type LayoutChangeEvent } from 'react-native';
+import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AGE_NAMES } from '../game/data';
@@ -7,14 +7,14 @@ import type { MapStyle } from '../game/mapgen';
 import type { Difficulty } from '../game/types';
 import type { Loaded } from '../render/loader';
 import { SOURCES } from '../render/manifest';
-import { CommandPanel } from './CommandPanel';
+import { CommandPanel, PANEL_H } from './CommandPanel';
 import { Controller } from './controller';
 import { GameCanvas } from './GameCanvas';
 import { Minimap } from './Minimap';
 import { Objectives } from './Objectives';
 import { EndOverlay, PauseOverlay, Toasts } from './Overlays';
 import { C, F } from './theme';
-import { fmtTime, TopBar } from './TopBar';
+import { fmtTime, TOP_H, TopBar } from './TopBar';
 
 interface Props {
   assets: Loaded;
@@ -25,6 +25,7 @@ interface Props {
 
 export function GameScreen({ assets, settings, onExit, onRestart }: Props) {
   const insets = useSafeAreaInsets();
+  const win = useWindowDimensions();
   const ctl = useMemo(() => new Controller({ seed: settings.seed, style: settings.style, difficulty: settings.difficulty }), [settings]);
   const [, setHud] = useState(0);
   const [miniOpen, setMiniOpen] = useState(true);
@@ -44,7 +45,7 @@ export function GameScreen({ assets, settings, onExit, onRestart }: Props) {
     // When the finger count changes (2→1 after a pinch) the centroid leaps; that event is ignored.
     let pointers = 0;
     let pinching = false;
-    const touch = () => { ctl.lastInput = performance.now(); };
+    const touch = () => { ctl.lastInput = performance.now(); ctl.fling = { vx: 0, vy: 0 }; };
     const pan = Gesture.Pan().runOnJS(true).minDistance(10).averageTouches(true)
       .onBegin(touch)
       .onStart((e) => {
@@ -58,7 +59,14 @@ export function GameScreen({ assets, settings, onExit, onRestart }: Props) {
         if (Math.abs(e.changeX) > 150 || Math.abs(e.changeY) > 150) return;
         ctl.panBy(e.changeX, e.changeY);
       })
-      .onEnd(() => { if (ctl.boxMode) { ctl.boxSelect(); ctl.boxMode = false; ctl.rev++; } })
+      .onEnd((e) => {
+        if (ctl.boxMode) { ctl.boxSelect(); ctl.boxMode = false; ctl.rev++; return; }
+        // flick: keep gliding with the release velocity (kinetic scrolling)
+        if (!pinching && e.numberOfPointers <= 1 && Math.hypot(e.velocityX, e.velocityY) > 250) {
+          const cap = 2400;
+          ctl.fling = { vx: Math.max(-cap, Math.min(cap, e.velocityX)), vy: Math.max(-cap, Math.min(cap, e.velocityY)) };
+        }
+      })
       .onFinalize(() => { if (!ctl.boxMode) ctl.box = null; });
     const boxPan = Gesture.Pan().runOnJS(true).activateAfterLongPress(380)
       .onStart((e) => { touch(); ctl.box = { x0: e.x, y0: e.y, x1: e.x, y1: e.y }; })
@@ -78,56 +86,57 @@ export function GameScreen({ assets, settings, onExit, onRestart }: Props) {
   const me = ctl.w.players[1];
   const idle = ctl.idleVillagers().length;
   const workers = ctl.workerCounts();
+  const land = win.width > win.height;
 
-  return (
-    <View style={[s.root, { paddingTop: insets.top }]}>
-      <TopBar res={me.res} workers={workers} pop={me.pop} cap={me.popCap} onRes={(r) => ctl.selectWorkers(r)} onMenu={() => { ctl.paused = true; setPaused(true); }} />
-      <View style={s.map} onLayout={onLayout}>
-        <GestureDetector gesture={gesture}>
-          <View style={StyleSheet.absoluteFill} collapsable={false}>
-            <GameCanvas ctl={ctl} assets={assets} size={size} onHud={onHud} />
-          </View>
-        </GestureDetector>
-        <View style={s.leftCol} pointerEvents="box-none">
-          <View style={s.agePill} pointerEvents="none">
-            <Image source={SOURCES[`icon_age${me.age + 1}`] ?? SOURCES.icon_age1} style={s.ageIcon} />
-            <Text style={s.ageTxt}>{AGE_NAMES[me.age]}</Text>
-            <Text style={s.timeTxt}>{fmtTime(ctl.w.time)}</Text>
-          </View>
-          {!ctl.ghost && <Objectives world={ctl.w} />}
-          <Toasts events={ctl.w.events} time={ctl.w.time} onPress={(x, y) => ctl.centerOn(x, y)} />
-        </View>
-        <View style={s.miniWrap} pointerEvents="box-none">
-          {miniOpen && <Minimap ctl={ctl} />}
-          <Pressable onPress={() => setMiniOpen((o) => !o)} style={s.miniToggle} hitSlop={8}>
-            <Text style={s.miniToggleTxt}>{miniOpen ? '▲' : '🗺'}</Text>
+  const agePill = (
+    <View style={s.agePill} pointerEvents="none">
+      <Image source={SOURCES[`icon_age${me.age + 1}`] ?? SOURCES.icon_age1} style={s.ageIcon} />
+      <Text style={s.ageTxt}>{AGE_NAMES[me.age]}</Text>
+      <Text style={s.timeTxt}>{fmtTime(ctl.w.time)}</Text>
+    </View>
+  );
+  const map = (
+    <GestureDetector gesture={gesture}>
+      <View style={StyleSheet.absoluteFill} collapsable={false}>
+        <GameCanvas ctl={ctl} assets={assets} size={size} onHud={onHud} />
+      </View>
+    </GestureDetector>
+  );
+  const groups = (
+    <View style={s.groupRow} pointerEvents="box-none">
+      {[0, 1, 2].map((i) => {
+        const n = ctl.groupSize(i);
+        return (
+          <Pressable key={i} onPress={() => ctl.selectGroup(i)} onLongPress={() => ctl.assignGroup(i)} delayLongPress={350}
+            style={({ pressed }) => [s.group, n > 0 && s.groupOn, pressed && { transform: [{ scale: 0.92 }] }]}>
+            <Text style={s.groupNum}>{i + 1}</Text>
+            {n > 0 && <Text style={s.groupCnt}>{n}</Text>}
           </Pressable>
-        </View>
-        <View style={s.groups} pointerEvents="box-none">
-          {[0, 1, 2].map((i) => {
-            const n = ctl.groupSize(i);
-            return (
-              <Pressable key={i} onPress={() => ctl.selectGroup(i)} onLongPress={() => ctl.assignGroup(i)} delayLongPress={350}
-                style={({ pressed }) => [s.group, n > 0 && s.groupOn, pressed && { transform: [{ scale: 0.92 }] }]}>
-                <Text style={s.groupNum}>{i + 1}</Text>
-                {n > 0 && <Text style={s.groupCnt}>{n}</Text>}
-              </Pressable>
-            );
-          })}
-        </View>
-        <View style={s.fabs} pointerEvents="box-none">
-          <Fab glyph="⬚" active={ctl.boxMode} onPress={() => { ctl.boxMode = !ctl.boxMode; ctl.rev++; }} />
-          <Fab icon={SOURCES.bld_town_center} onPress={() => ctl.goHome()} />
-          <Fab icon={SOURCES.unit_militia} onPress={() => ctl.selectArmy()} />
-          <Fab icon={SOURCES.unit_villager_m} badge={idle > 0 ? String(idle) : undefined} warn={idle > 0} onPress={() => ctl.nextIdleVillager()} />
-        </View>
-        {ctl.boxMode && (
-          <View style={s.boxHint} pointerEvents="none"><Text style={s.boxHintTxt}>Seçmek istediğin alanı parmağınla çiz</Text></View>
-        )}
-      </View>
-      <View style={{ paddingBottom: insets.bottom, backgroundColor: C.wood }}>
-        <CommandPanel ctl={ctl} />
-      </View>
+        );
+      })}
+    </View>
+  );
+  const fabs = (
+    <>
+      <Fab glyph="⬚" active={ctl.boxMode} onPress={() => { ctl.boxMode = !ctl.boxMode; ctl.rev++; }} />
+      <Fab icon={SOURCES.bld_town_center} onPress={() => ctl.goHome()} />
+      <Fab icon={SOURCES.unit_militia} onPress={() => ctl.selectArmy()} />
+      <Fab icon={SOURCES.unit_villager_m} badge={idle > 0 ? String(idle) : undefined} warn={idle > 0} onPress={() => ctl.nextIdleVillager()} />
+    </>
+  );
+  const minimap = (
+    <View style={s.miniCol} pointerEvents="box-none">
+      {miniOpen && <Minimap ctl={ctl} />}
+      <Pressable onPress={() => setMiniOpen((o) => !o)} style={s.miniToggle} hitSlop={8}>
+        <Text style={s.miniToggleTxt}>{miniOpen ? (land ? '▼' : '▲') : '🗺'}</Text>
+      </Pressable>
+    </View>
+  );
+  const overlays = (
+    <>
+      {ctl.boxMode && (
+        <View style={s.boxHint} pointerEvents="none"><Text style={s.boxHintTxt}>Seçmek istediğin alanı parmağınla çiz</Text></View>
+      )}
       {paused && !ctl.w.winner && (
         <PauseOverlay
           speed={ctl.speed}
@@ -138,6 +147,55 @@ export function GameScreen({ assets, settings, onExit, onRestart }: Props) {
         />
       )}
       {ctl.w.winner ? <EndOverlay world={ctl.w} onRestart={onRestart} onExit={onExit} /> : null}
+    </>
+  );
+  const topBar = (
+    <TopBar res={me.res} workers={workers} pop={me.pop} cap={me.popCap} onRes={(r) => ctl.selectWorkers(r)}
+      onMenu={() => { ctl.paused = true; setPaused(true); }} extra={land ? agePill : undefined} />
+  );
+
+  if (land) {
+    // Landscape: full-screen map with floating HUD — minimap under the left thumb, commands under the right thumb.
+    const cardW = Math.min(560, Math.max(330, win.width * 0.56));
+    return (
+      <View style={s.root}>
+        <View style={StyleSheet.absoluteFill} onLayout={onLayout}>{map}</View>
+        <View style={[s.topLand, { paddingTop: insets.top, paddingLeft: insets.left, paddingRight: insets.right }]}>{topBar}</View>
+        <View style={[s.leftCol, { top: insets.top + TOP_H + 6, left: insets.left + 6 }]} pointerEvents="box-none">
+          {!ctl.ghost && <Objectives world={ctl.w} />}
+          <Toasts events={ctl.w.events} time={ctl.w.time} onPress={(x, y) => ctl.centerOn(x, y)} />
+        </View>
+        <View style={[s.miniLand, { left: insets.left + 6, bottom: insets.bottom + 6 }]} pointerEvents="box-none">
+          {groups}
+          {minimap}
+        </View>
+        <View style={[s.fabsLand, { right: insets.right + 6, bottom: insets.bottom + PANEL_H + 14 }]} pointerEvents="box-none">{fabs}</View>
+        <View style={[s.card, { right: insets.right + 6, bottom: insets.bottom + 6, width: cardW }]}>
+          <CommandPanel ctl={ctl} card />
+        </View>
+        {overlays}
+      </View>
+    );
+  }
+
+  return (
+    <View style={[s.root, { paddingTop: insets.top }]}>
+      {topBar}
+      <View style={s.map} onLayout={onLayout}>
+        {map}
+        <View style={s.leftCol} pointerEvents="box-none">
+          {agePill}
+          {!ctl.ghost && <Objectives world={ctl.w} />}
+          <Toasts events={ctl.w.events} time={ctl.w.time} onPress={(x, y) => ctl.centerOn(x, y)} />
+        </View>
+        <View style={s.miniWrap} pointerEvents="box-none">{minimap}</View>
+        <View style={s.groups} pointerEvents="box-none">{groups}</View>
+        <View style={s.fabs} pointerEvents="box-none">{fabs}</View>
+      </View>
+      <View style={{ paddingBottom: insets.bottom, backgroundColor: C.wood }}>
+        <CommandPanel ctl={ctl} />
+      </View>
+      {overlays}
     </View>
   );
 }
@@ -160,9 +218,15 @@ const s = StyleSheet.create({
   ageTxt: { color: C.goldLight, fontFamily: F.head, fontSize: 11 },
   timeTxt: { color: C.textDim, fontFamily: F.bodyB, fontSize: 11, fontVariant: ['tabular-nums'] },
   miniWrap: { position: 'absolute', top: 6, right: 6, alignItems: 'flex-end' },
+  miniCol: { alignItems: 'flex-end' },
+  topLand: { position: 'absolute', left: 0, right: 0, top: 0 },
+  miniLand: { position: 'absolute', gap: 6, alignItems: 'flex-start' },
+  fabsLand: { position: 'absolute', gap: 6, alignItems: 'flex-end' },
+  card: { position: 'absolute', borderRadius: 12, overflow: 'hidden', borderWidth: 1.5, borderColor: C.goldDark, backgroundColor: C.wood },
+  groupRow: { flexDirection: 'row', gap: 6 },
   miniToggle: { marginTop: 4, width: 30, height: 22, borderRadius: 6, backgroundColor: 'rgba(20,14,9,0.85)', borderWidth: 1, borderColor: C.goldDark, alignItems: 'center', justifyContent: 'center' },
   miniToggleTxt: { color: C.goldLight, fontSize: 11 },
-  groups: { position: 'absolute', left: 6, bottom: 8, flexDirection: 'row', gap: 6 },
+  groups: { position: 'absolute', left: 6, bottom: 8 },
   group: { width: 38, height: 38, borderRadius: 10, backgroundColor: 'rgba(28,20,13,0.72)', borderWidth: 1, borderColor: '#4a3a28', alignItems: 'center', justifyContent: 'center' },
   groupOn: { borderColor: C.gold, backgroundColor: 'rgba(58,42,24,0.92)' },
   groupNum: { color: C.goldLight, fontFamily: F.headX, fontSize: 14 },

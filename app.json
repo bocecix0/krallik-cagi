@@ -3,7 +3,7 @@
     "name": "Krallıklar Çağı",
     "slug": "krallik-cagi",
     "version": "0.1.0",
-    "orientation": "portrait",
+    "orientation": "landscape",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "dark",
     "backgroundColor": "#0d0a07",
@@ -17,11 +17,18 @@
         }
       ],
       "expo-font",
-      "expo-asset"
+      "expo-asset",
+      [
+        "expo-screen-orientation",
+        {
+          "initialOrientation": "LANDSCAPE"
+        }
+      ]
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.krallikcagi.app"
+      "bundleIdentifier": "com.krallikcagi.app",
+      "requireFullScreen": true
     },
     "android": {
       "package": "com.krallikcagi.app",
