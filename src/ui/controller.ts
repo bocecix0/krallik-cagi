@@ -42,6 +42,8 @@ export class Controller {
     const tc = this.w.ownEntities(1).find((e) => e.type === 'town_center');
     if (tc) this.centerOn(tc.x + 2, tc.y + 2);
     this.cam.zoom = 1.1;
+    const cam = opts.restore?.cam;
+    if (cam) { this.cam.x = cam.x; this.cam.y = cam.y; this.cam.zoom = cam.zoom; }
   }
 
   setViewport(vw: number, vh: number) { this.cam.vw = vw; this.cam.vh = vh; clampCamera(this.cam, this.w.size); }

@@ -71,9 +71,10 @@ export function buildButtons(ctl: Controller, tab: 'eco' | 'mil'): Btn[] {
     for (const u of d.trains ?? []) {
       if (u === 'militia' && hasMaa) continue;
       if (u === 'manatarms' && !hasMaa) continue;
+      if (!w.civAllows(1, u)) continue;
       const ud = UNITS[u];
       const queued = bld.queue?.filter((q) => q.id === u).length ?? 0;
-      out.push({ key: u, icon: unitIcon(u), label: ud.name, cost: ud.cost, desc: ud.desc, badge: queued ? String(queued) : undefined, locked: ud.age > me.age ? AGE_NAMES[ud.age] : undefined, onPress: () => w.train(bld, u) });
+      out.push({ key: u, icon: unitIcon(u), label: ud.name, cost: w.unitCost(1, u), desc: ud.desc, badge: queued ? String(queued) : undefined, locked: ud.age > me.age ? AGE_NAMES[ud.age] : undefined, onPress: () => w.train(bld, u) });
     }
     for (const t of d.techs ?? []) {
       const td = TECHS[t];
@@ -83,7 +84,7 @@ export function buildButtons(ctl: Controller, tab: 'eco' | 'mil'): Btn[] {
       if (td.requires && !me.techs.has(td.requires)) continue;
       if ([...w.entities.values()].some((e) => e.owner === 1 && e.queue?.some((q) => q.id === t))) continue;
       const req = isAge ? ` (${w.ageReqCount(1)}/2 bina)` : '';
-      out.push({ key: t, icon: techIcon(t), label: isAge ? 'Çağ Atla' : td.name, cost: td.cost, desc: td.desc + req, locked: td.age > me.age ? AGE_NAMES[td.age] : undefined, onPress: () => w.research(bld, t) });
+      out.push({ key: t, icon: techIcon(t), label: isAge ? 'Çağ Atla' : td.name, cost: w.techCost(1, t), desc: td.desc + req, locked: td.age > me.age ? AGE_NAMES[td.age] : undefined, onPress: () => w.research(bld, t) });
     }
     if (bld.type === 'market') {
       for (const r of ['food', 'wood', 'stone'] as const) {
@@ -103,12 +104,12 @@ export function buildButtons(ctl: Controller, tab: 'eco' | 'mil'): Btn[] {
     const tc = ctl.townCenter();
     if (tc) {
       const q = tc.queue?.filter((x) => x.id === 'villager').length ?? 0;
-      out.push({ key: 'q_vil', icon: unitIcon('villager'), label: 'Köylü', cost: UNITS.villager.cost, desc: 'Şehir Merkezinde köylü üret.', badge: q ? String(q) : undefined, onPress: () => w.train(tc, 'villager') });
+      out.push({ key: 'q_vil', icon: unitIcon('villager'), label: 'Köylü', cost: w.unitCost(1, 'villager'), desc: 'Şehir Merkezinde köylü üret.', badge: q ? String(q) : undefined, onPress: () => w.train(tc, 'villager') });
     }
     const next = (['feudal', 'castle_age', 'imperial'] as TechId[])[me.age];
     if (tc && next && w.techAvailable(1, next)) {
       const td = TECHS[next];
-      out.push({ key: 'q_age', icon: techIcon(next), label: 'Çağ Atla', cost: td.cost, desc: `${td.name}. ${td.desc} (${w.ageReqCount(1)}/2)`, onPress: () => w.research(tc, next) });
+      out.push({ key: 'q_age', icon: techIcon(next), label: 'Çağ Atla', cost: w.techCost(1, next), desc: `${td.name}. ${td.desc} (${w.ageReqCount(1)}/2)`, onPress: () => w.research(tc, next) });
     }
     for (const t of ['house', 'farm', 'lumber_camp', 'mining_camp', 'mill', 'barracks'] as BuildingType[]) {
       const d = BUILDINGS[t];

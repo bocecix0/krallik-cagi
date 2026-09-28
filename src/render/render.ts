@@ -5,7 +5,10 @@ import { TERRAIN_COUNT, type BuildingType, type Entity } from '../game/types';
 import type { World } from '../game/world';
 import { ATLAS } from './manifest';
 import { FxSystem } from './fx';
-import { buildingKey, nodeKey, spriteSize, unitKey, type Images } from './sprites';
+import { buildingKey, nodeKey, spriteSize, STRIKE, unitKey, villagerAnim, type Images } from './sprites';
+
+/** last drawn animation frame per villager, to fire tool sounds exactly on the strike frame */
+const lastFrame = new Map<number, string>();
 
 const fxSystems = new WeakMap<World, FxSystem>();
 function fxFor(w: World) {
@@ -122,13 +125,13 @@ class SpriteBatch {
 const batch = new SpriteBatch();
 
 function diamondPath(x: number, y: number, s: number) {
-  const p = Skia.Path.Make();
-  p.moveTo(toScreenX(x, y), toScreenY(x, y));
-  p.lineTo(toScreenX(x + s, y), toScreenY(x + s, y));
-  p.lineTo(toScreenX(x + s, y + s), toScreenY(x + s, y + s));
-  p.lineTo(toScreenX(x, y + s), toScreenY(x, y + s));
-  p.close();
-  return p;
+  return Skia.PathBuilder.Make()
+    .moveTo(toScreenX(x, y), toScreenY(x, y))
+    .lineTo(toScreenX(x + s, y), toScreenY(x + s, y))
+    .lineTo(toScreenX(x + s, y + s), toScreenY(x + s, y + s))
+    .lineTo(toScreenX(x, y + s), toScreenY(x, y + s))
+    .close()
+    .build();
 }
 
 function visibleRange(w: World, cam: Camera) {
@@ -362,6 +365,25 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
         });
       }
     } else {
+      const an = e.type === 'villager' ? villagerAnim(e, w) : null;
+      if (an) {
+        const sx = toScreenX(e.x, e.y), sy = toScreenY(e.x, e.y);
+        const img = e.owner === 2 ? imgs[`${an.key}_red`] ?? imgs[an.key] : imgs[an.key];
+        batch.add(c, img, sx, sy + 2, an.w, e.facing === -1, 0);
+        const strike = STRIKE[an.action];
+        if (strike && e.owner === 1) {
+          const tag = an.name + an.frame;
+          if (lastFrame.get(e.id) !== tag) {
+            if (an.frame === strike.frame) w.sound(strike.sound, e.x, e.y);
+            lastFrame.set(e.id, tag);
+          }
+        }
+        if (rs.selection.has(e.id) || (e.hp < e.maxHp && e.owner !== 0)) {
+          const frac = e.hp / e.maxHp, own = e.owner === 1, top = sy - an.top - 6;
+          overlays.push(() => drawHp(c, sx, top, 26, frac, own));
+        }
+        continue;
+      }
       const key = unitKey(e, w);
       const s = spriteSize(key);
       const sx = toScreenX(e.x, e.y), sy = toScreenY(e.x, e.y);
@@ -393,6 +415,12 @@ export function renderScene(c: SkCanvas, w: World, cam: Camera, imgs: Images, at
     const k2 = Math.min(1, k + 0.08);
     const x2 = p.x + (p.tx - p.x) * k2, y2 = p.y + (p.ty - p.y) * k2;
     const arc = Math.sin(Math.PI * k) * 22 + 14, arc2 = Math.sin(Math.PI * k2) * 22 + 14;
+    if (p.kind === 'bullet') {
+      paints.stroke.setColor(color('#ffe9a8')); paints.stroke.setStrokeWidth(1.4);
+      c.drawLine(toScreenX(x, y), toScreenY(x, y) - 18, toScreenX(x2, y2), toScreenY(x2, y2) - 18, paints.stroke);
+      paints.stroke.setColor(color('#3b2a18')); paints.stroke.setStrokeWidth(1.6);
+      continue;
+    }
     if (p.kind === 'stone') {
       const sx = toScreenX(x, y), sy = toScreenY(x, y) - Math.sin(Math.PI * k) * 60 - 14;
       if (imgs.proj_stone) drawSprite(c, imgs.proj_stone, sx, sy + 5, 10, 10, false);

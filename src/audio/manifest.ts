@@ -18,6 +18,7 @@ export const AUDIO = {
   command: require('../../assets/audio/command.mp3'),
   death: require('../../assets/audio/death.mp3'),
   collapse: require('../../assets/audio/collapse.mp3'),
+  gunshot: require('../../assets/audio/gunshot.mp3'),
   coin: require('../../assets/audio/coin.mp3'),
   music_main: require('../../assets/audio/music_main.mp3'),
 } as const;

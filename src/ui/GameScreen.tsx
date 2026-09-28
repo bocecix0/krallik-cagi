@@ -1,10 +1,14 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { AppState } from 'react-native';
+import type { SaveData } from '../game/world';
+import { clearSave, saveGame } from './save';
 import { Image, Pressable, StyleSheet, Text, View, useWindowDimensions, type LayoutChangeEvent } from 'react-native';
 import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { AGE_NAMES } from '../game/data';
 import type { MapStyle } from '../game/mapgen';
-import type { Difficulty } from '../game/types';
+import type { CivId, Difficulty } from '../game/types';
+import { CIVS } from '../game/civs';
 import type { Loaded } from '../render/loader';
 import { SOURCES } from '../render/manifest';
 import { CommandPanel, PANEL_H } from './CommandPanel';
@@ -18,7 +22,7 @@ import { fmtTime, TOP_H, TopBar } from './TopBar';
 
 interface Props {
   assets: Loaded;
-  settings: { difficulty: Difficulty; style: MapStyle; seed: number };
+  settings: { difficulty: Difficulty; style: MapStyle; seed: number; civ: CivId; restore?: SaveData };
   onExit: () => void;
   onRestart: () => void;
 }
@@ -26,7 +30,15 @@ interface Props {
 export function GameScreen({ assets, settings, onExit, onRestart }: Props) {
   const insets = useSafeAreaInsets();
   const win = useWindowDimensions();
-  const ctl = useMemo(() => new Controller({ seed: settings.seed, style: settings.style, difficulty: settings.difficulty }), [settings]);
+  const ctl = useMemo(() => new Controller({ seed: settings.seed, style: settings.style, difficulty: settings.difficulty, civ: settings.civ, restore: settings.restore }), [settings]);
+  // autosave: every 20s, when the app goes to background and when leaving the screen; the save is dropped once the game is decided
+  useEffect(() => {
+    const t = setInterval(() => { if (!ctl.paused) saveGame(ctl); }, 20000);
+    const sub = AppState.addEventListener('change', (st) => { if (st !== 'active') saveGame(ctl); });
+    return () => { clearInterval(t); sub.remove(); saveGame(ctl); };
+  }, [ctl]);
+  const decided = !!ctl.w.winner;
+  useEffect(() => { if (decided) clearSave(); }, [decided]);
   const [, setHud] = useState(0);
   const [miniOpen, setMiniOpen] = useState(true);
   const [paused, setPaused] = useState(false);
@@ -90,6 +102,7 @@ export function GameScreen({ assets, settings, onExit, onRestart }: Props) {
 
   const agePill = (
     <View style={s.agePill} pointerEvents="none">
+      <Image source={SOURCES[CIVS[me.civ].icon] ?? SOURCES.icon_age1} style={s.ageIcon} />
       <Image source={SOURCES[`icon_age${me.age + 1}`] ?? SOURCES.icon_age1} style={s.ageIcon} />
       <Text style={s.ageTxt}>{AGE_NAMES[me.age]}</Text>
       <Text style={s.timeTxt}>{fmtTime(ctl.w.time)}</Text>
@@ -151,7 +164,7 @@ export function GameScreen({ assets, settings, onExit, onRestart }: Props) {
   );
   const topBar = (
     <TopBar res={me.res} workers={workers} pop={me.pop} cap={me.popCap} onRes={(r) => ctl.selectWorkers(r)}
-      onMenu={() => { ctl.paused = true; setPaused(true); }} extra={land ? agePill : undefined} />
+      onMenu={() => { ctl.paused = true; setPaused(true); saveGame(ctl); }} extra={land ? agePill : undefined} />
   );
 
   if (land) {

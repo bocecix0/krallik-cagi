@@ -1,5 +1,5 @@
 import type { SkImage } from '@shopify/react-native-skia';
-import { MANIFEST, type ManifestKey } from './manifest';
+import { ANIMS, MANIFEST, type ManifestKey } from './manifest';
 import { UNITS } from '../game/data';
 import type { Entity, UnitType } from '../game/types';
 import type { World } from '../game/world';
@@ -18,6 +18,8 @@ export const SPEC: Record<string, SpriteSpec> = {
   unit_vilf_miner: { h: 38 }, unit_vilf_walk: { h: 37 },
   unit_militia_atk: { h: 41 }, unit_manatarms_atk: { h: 44 }, unit_spearman_atk: { h: 42 }, unit_archer_atk: { h: 40 },
   unit_skirmisher_atk: { h: 41 }, unit_knight_atk: { h: 58 }, unit_scout_atk: { h: 51 },
+  unit_janissary: { h: 41 }, unit_janissary_atk: { h: 41 }, unit_cataphract: { h: 54 }, unit_cataphract_atk: { h: 55 },
+  unit_paladin: { h: 58 }, unit_paladin_atk: { h: 60 }, unit_mangudai: { h: 50 }, unit_mangudai_atk: { h: 51 },
   unit_ram: { w: 54 }, unit_mangonel: { w: 50 }, unit_mangonel_atk: { w: 48 }, unit_monk_atk: { h: 42 },
   unit_villager_m: { h: 38 }, unit_villager_f: { h: 37 }, unit_villager_carry: { h: 39 },
   unit_militia: { h: 40 }, unit_manatarms: { h: 41 }, unit_spearman: { h: 48 }, unit_archer: { h: 40 },
@@ -86,6 +88,49 @@ export function unitKey(e: Entity, w?: World): string {
     return directional(base, !!e.back, null);
   }
   return directional(base, !!e.back, step);
+}
+
+/** on-screen height (world px) of the median frame of each villager animation */
+const ANIM_H: Record<string, number> = {
+  vil_m_walk: 38, vil_m_walkback: 38, vil_m_chop: 40, vil_m_mine: 40, vil_m_build: 31, vil_m_farm: 37, vil_m_carrywood: 41, vil_m_carrysack: 40,
+  vil_f_walk: 37, vil_f_walkback: 37, vil_f_chop: 39, vil_f_mine: 39, vil_f_build: 36, vil_f_farm: 35, vil_f_forage: 36, vil_f_carry: 37,
+};
+/** frame index at which the tool hits (for synced strike sounds) */
+export const STRIKE: Record<string, { frame: number; sound: string }> = {
+  chop: { frame: 2, sound: 'chop' }, mine: { frame: 2, sound: 'mine' }, build: { frame: 2, sound: 'hammer' },
+};
+
+export interface AnimFrame { key: string; name: string; action: string; frame: number; w: number; h: number; top: number }
+
+/**
+ * Frame-registered villager animations (4-frame strips): walk / walk-back, chop, mine, build, farm, forage, carry.
+ * Returns null when the strip is missing so the renderer can fall back to static sprites.
+ */
+export function villagerAnim(e: Entity, w?: World): AnimFrame | null {
+  const g = e.female ? 'f' : 'm';
+  const a = e.anim ?? 0;
+  let action: string;
+  let frame: number;
+  if (e.working) {
+    const job = villagerJob(e, w);
+    action = job === 'lumberjack' ? 'chop' : job === 'miner' ? 'mine' : job === 'builder' ? 'build'
+      : job === 'forager' ? (e.female ? 'forage' : 'farm') : job === 'hunter' ? 'chop' : 'farm';
+    frame = Math.floor(a * 1.25);
+  } else if (e.path?.length) {
+    if (e.back) action = 'walkback';
+    else if (e.carry && e.carry.amount >= 3) action = e.female ? 'carry' : e.carry.type === 'wood' ? 'carrywood' : 'carrysack';
+    else action = 'walk';
+    frame = Math.floor(a * 0.9);
+  } else {
+    action = e.back ? 'walkback' : 'walk';
+    frame = 1; // the "passing" frame doubles as a neutral stance
+  }
+  const name = `vil_${g}_${action}`;
+  const A = ANIMS[name];
+  if (!A) return null;
+  const k = (ANIM_H[name] ?? 38) / A.fig;
+  const f = ((frame % A.n) + A.n) % A.n;
+  return { key: `anim_${name}_${f}`, name, action, frame: f, w: A.w * k, h: A.h * k, top: ANIM_H[name] ?? 38 };
 }
 
 export function nodeKey(type: string): string {

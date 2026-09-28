@@ -166,6 +166,11 @@ def sfx():
     rumble = lowpass(noise(1.8), 500) * np.minimum(1, t(1.8) / 0.05) * np.exp(-2.2 * t(1.8))
     crackle = band(noise(1.8), 1500, 6000) * (rng.random(int(SR * 1.8)) > 0.985) * np.exp(-2.5 * t(1.8))
     S['collapse'] = norm(mix(rumble, 0.6 * crackle, sine_sweep(70, 35, 1.2) * env(1.2, 0.005, 3)), 0.9)
+    # matchlock musket: sharp crack + low boom + smoky tail
+    crack = band(noise(0.04), 1500, 12000) * env(0.04, 0.0003, 120)
+    boom = sine_sweep(140, 45, 0.45) * env(0.45, 0.001, 9)
+    tail = lowpass(noise(0.9), 1400) * np.exp(-4.5 * t(0.9)) * 0.35
+    S['gunshot'] = norm(reverb(mix(crack, boom * 0.9, tail), 1.0, 0.2), 0.85)
     S['coin'] = norm(mix(partials([2637, 3520], [1, 0.6], 0.25, [18, 22]), at(partials([3136, 4186], [0.8, 0.4], 0.25, [18, 22]), 0.06, int(SR * 0.31))), 0.4)
     return S
 

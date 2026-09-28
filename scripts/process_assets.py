@@ -4,7 +4,8 @@
 - team color: *_red variants (blue hues -> red) for units and buildings
 - terrain: seamless textures -> feathered isometric diamond atlas (4x4 variants per terrain) + fog cell
 """
-import os, json
+import os, sys, json
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import numpy as np
 from PIL import Image
 
@@ -12,6 +13,35 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RAW = os.path.join(ROOT, "assets", "raw")
 OUT = os.path.join(ROOT, "assets", "game")
 os.makedirs(OUT, exist_ok=True)
+
+# Write every output atomically (temp file + rename) so a running Metro bundler never sees half-written images.
+_orig_save = Image.Image.save
+
+
+def _atomic_save(self, fp, *args, **kwargs):
+    if isinstance(fp, str) and os.path.dirname(os.path.abspath(fp)) == os.path.abspath(OUT):
+        tmpdir = os.path.join(ROOT, ".gen", "tmp")
+        os.makedirs(tmpdir, exist_ok=True)
+        tmp = os.path.join(tmpdir, os.path.basename(fp))
+        _orig_save(self, tmp, *args, **kwargs)
+        _replace(tmp, fp)
+        return None
+    return _orig_save(self, fp, *args, **kwargs)
+
+
+Image.Image.save = _atomic_save
+
+
+def _replace(src, dst):
+    """os.replace with retries: on Windows the bundler may hold the target open for a moment."""
+    import time
+    for i in range(40):
+        try:
+            os.replace(src, dst)
+            return
+        except PermissionError:
+            time.sleep(0.05 * (i + 1))
+    os.replace(src, dst)
 
 TERRAINS = ["tex_water_deep", "tex_water", "tex_sand", "tex_dirt", "tex_grass2", "tex_grass", "tex_forest"]
 TILE_W, TILE_H = 128, 64
@@ -148,7 +178,7 @@ def main():
         if not f.endswith(".png"):
             continue
         key = f[:-4]
-        if key.startswith("tex_"):
+        if key.startswith("tex_") or key.startswith("sheet_"):
             continue
         im = Image.open(os.path.join(RAW, f))
         is_art = key.startswith("ui_menu_bg") or key.startswith("ui_loading")
@@ -170,6 +200,13 @@ def main():
         if (prefix in ("unit", "bld")) and key not in NO_RED:
             to_red(im).save(os.path.join(OUT, key + "_red.webp"), quality=90, method=4)
             manifest[key + "_red"] = {"file": key + "_red.webp", "w": im.size[0], "h": im.size[1]}
+    import process_anims
+    anims = process_anims.process(to_red)
+    for name, m in anims.items():
+        for i in range(m["n"]):
+            k = f"anim_{name}_{i}"
+            manifest[k] = {"file": k + ".webp", "w": m["w"], "h": m["h"]}
+            manifest[k + "_red"] = {"file": k + "_red.webp", "w": m["w"], "h": m["h"]}
     build_atlas()
     manifest["terrain_atlas"] = {"file": "terrain_atlas.webp", "w": CELL_W * 16, "h": CELL_H * (len(TERRAINS) + 1)}
 
@@ -184,12 +221,20 @@ def main():
     lines.append("} as const;")
     lines.append("export type ManifestKey = keyof typeof MANIFEST;")
     lines.append("")
+    lines.append("/** frame-registered animations: n frames of w x h px; fig = median figure height in px */")
+    lines.append("export const ANIMS: Record<string, { n: number; w: number; h: number; fig: number }> = {")
+    for name, m in anims.items():
+        lines.append(f"  {name}: {{ n: {m['n']}, w: {m['w']}, h: {m['h']}, fig: {m['fig']} }},")
+    lines.append("};")
+    lines.append("")
     lines.append("export const SOURCES: Record<string, number> = {")
     for k, m in manifest.items():
         lines.append(f"  {k}: require('../../assets/game/{m['file']}'),")
     lines.append("};")
-    with open(os.path.join(ROOT, "src", "render", "manifest.ts"), "w", encoding="utf-8") as fh:
-        fh.write("\n".join(lines) + "\n")
+    mpath = os.path.join(ROOT, "src", "render", "manifest.ts")
+    with open(mpath + ".tmp", "w", encoding="utf-8") as fh:
+        fh.write(chr(10).join(lines) + chr(10))
+    _replace(mpath + ".tmp", mpath)
     print("processed", len(manifest), "assets")
 
 

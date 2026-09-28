@@ -49,12 +49,13 @@ function computeDamage(w: World, a: Entity, t: Entity) {
   return Math.max(1, s.attack - armor) + bonus;
 }
 
-function fire(w: World, from: { x: number; y: number }, owner: number, t: Entity, dmg: number, splash = 0) {
+function fire(w: World, from: { x: number; y: number }, owner: number, t: Entity, dmg: number, splash = 0, gun = false) {
   const c = w.centerOf(t);
   const d = Math.hypot(c.x - from.x, c.y - from.y);
-  const speed = splash ? 4.5 : 7;
-  w.projectiles.push({ x: from.x, y: from.y, tx: c.x, ty: c.y, target: t.id, damage: dmg, speed, owner, life: 0, total: Math.max(0.15, d / speed), splash, kind: splash ? 'stone' : 'arrow' });
-  if (!splash) w.sound('arrow', from.x, from.y);
+  const speed = splash ? 4.5 : gun ? 22 : 7;
+  w.projectiles.push({ x: from.x, y: from.y, tx: c.x, ty: c.y, target: t.id, damage: dmg, speed, owner, life: 0, total: Math.max(gun ? 0.06 : 0.15, d / speed), splash, kind: splash ? 'stone' : gun ? 'bullet' : 'arrow' });
+  if (gun) { w.sound('gunshot', from.x, from.y); w.fxAt('dust', from.x, from.y, 0.4); }
+  else if (!splash) w.sound('arrow', from.x, from.y);
 }
 
 function findEnemyNear(w: World, u: Entity, radius: number, unitsOnly = false) {
@@ -115,7 +116,7 @@ function updateUnit(w: World, u: Entity, dt: number) {
         if (u.attackCd! <= 0) {
           u.attackCd = st.reload;
           const dmg = computeDamage(w, u, t);
-          if (st.range > 0) fire(w, { x: u.x, y: u.y }, u.owner, t, dmg, UNITS[u.type as UnitType].splash ?? 0);
+          if (st.range > 0) fire(w, { x: u.x, y: u.y }, u.owner, t, dmg, UNITS[u.type as UnitType].splash ?? 0, !!UNITS[u.type as UnitType].gun);
           else {
             damage(w, u, t, dmg);
             w.sound(u.type === 'ram' ? 'impact' : u.type === 'villager' ? 'hammer' : 'sword', u.x, u.y);
@@ -182,14 +183,6 @@ function gather(w: World, u: Entity, targetId: number, dt: number, speed: number
     face(u, dx, dy);
     stepToward(u, t.x + 0.5, t.y + 0.5, 0.7, speed * dt);
   }
-  if (u.owner === 1 && !isFarm) {
-    u.hitT = (u.hitT ?? Math.random()) - dt;
-    if (u.hitT <= 0) {
-      u.hitT = 1.05;
-      const snd = res === 'wood' ? 'chop' : res === 'gold' || res === 'stone' ? 'mine' : '';
-      if (snd) w.sound(snd, u.x, u.y);
-    }
-  }
   const amt = Math.min(w.gatherRate(u.owner, t) * dt, t.amount!);
   t.amount! -= amt;
   u.carry = { type: res, amount: (u.carry?.amount ?? 0) + amt };
@@ -243,10 +236,6 @@ function build(w: World, u: Entity, id: number, dt: number, speed: number) {
     // hug the wall: nearest point of the footprint
     const nx = Math.max(b.x, Math.min(b.x + b.size, u.x)), ny = Math.max(b.y, Math.min(b.y + b.size, u.y));
     stepToward(u, nx, ny, 0.32, speed * dt);
-  }
-  if (u.owner === 1) {
-    u.hitT = (u.hitT ?? Math.random()) - dt;
-    if (u.hitT <= 0) { u.hitT = 0.85; w.sound('hammer', u.x, u.y); }
   }
   if (!b.built) {
     const inc = dt / d.time;

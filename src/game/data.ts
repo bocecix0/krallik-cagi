@@ -25,6 +25,10 @@ export interface UnitDef {
   bonus?: Partial<Record<'infantry' | 'archer' | 'cavalry' | 'building' | 'villager' | 'monk' | 'siege', number>>;
   splash?: number;
   buildingsOnly?: boolean;
+  /** civilization that owns this unique unit */
+  civ?: import('./types').CivId;
+  /** gunpowder: fires a fast bullet with smoke */
+  gun?: boolean;
   desc: string;
 }
 
@@ -39,6 +43,10 @@ export const UNITS: Record<UnitType, UnitDef> = {
   knight: { name: 'Şövalye', cost: { food: 60, gold: 75 }, time: 30, hp: 100, attack: 10, melee: 2, pierce: 2, range: 0, reload: 1.8, speed: 1.35, los: 4, age: 2, from: 'stable', cls: 'cavalry', desc: 'Ağır süvari. Çok güçlü.' },
   ram: { name: 'Koçbaşı', cost: { wood: 160, gold: 75 }, time: 36, hp: 175, attack: 2, melee: 0, pierce: 180, range: 0, reload: 5, speed: 0.5, los: 3, age: 2, from: 'siege_workshop', cls: 'siege', bonus: { building: 125 }, buildingsOnly: true, desc: 'Binaları yıkar. Oklara karşı neredeyse bağışık.' },
   mangonel: { name: 'Mancınık', cost: { wood: 160, gold: 135 }, time: 46, hp: 50, attack: 40, melee: 0, pierce: 6, range: 7, reload: 6, speed: 0.6, los: 9, age: 2, from: 'siege_workshop', cls: 'siege', bonus: { building: 35 }, splash: 1, desc: 'Alan hasarı veren taş atar. Toplu okçulara karşı etkili.' },
+  janissary: { name: 'Yeniçeri', cost: { food: 60, gold: 55 }, time: 17, hp: 35, attack: 17, melee: 1, pierce: 0, range: 7, reload: 3.45, speed: 0.96, los: 8, age: 2, from: 'castle', cls: 'archer', bonus: { infantry: 2 }, civ: 'turks', gun: true, desc: 'Türk özel birimi: tüfekli piyade, çok yüksek hasar.' },
+  cataphract: { name: 'Katafrakt', cost: { food: 70, gold: 75 }, time: 20, hp: 110, attack: 9, melee: 2, pierce: 1, range: 0, reload: 1.7, speed: 1.35, los: 4, age: 2, from: 'castle', cls: 'cavalry', bonus: { infantry: 12 }, civ: 'byzantines', desc: 'Bizans özel birimi: piyadeyi ezen zırhlı süvari.' },
+  paladin: { name: 'Frank Paladini', cost: { food: 70, gold: 80 }, time: 30, hp: 160, attack: 14, melee: 2, pierce: 3, range: 0, reload: 1.9, speed: 1.35, los: 5, age: 2, from: 'castle', cls: 'cavalry', civ: 'franks', desc: 'Frank özel birimi: çok dayanıklı elit şövalye.' },
+  mangudai: { name: 'Mangudai', cost: { wood: 55, gold: 65 }, time: 26, hp: 60, attack: 6, melee: 0, pierce: 1, range: 4, reload: 2.1, speed: 1.45, los: 6, age: 2, from: 'castle', cls: 'archer', bonus: { siege: 3, cavalry: 1 }, civ: 'mongols', desc: 'Moğol özel birimi: hızlı atlı okçu.' },
   monk: { name: 'Keşiş', cost: { gold: 100 }, time: 51, hp: 30, attack: 0, melee: 0, pierce: 0, range: 0, reload: 1, speed: 0.7, los: 11, age: 2, from: 'monastery', cls: 'monk', desc: 'Dost birimleri iyileştirir.' },
 };
 
@@ -78,7 +86,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   blacksmith: { name: 'Demirci', cost: { wood: 150 }, time: 40, hp: 1200, size: 3, age: 1, techs: ['forging', 'fletching', 'scale_mail', 'padded_archer', 'iron_casting', 'bodkin_arrow', 'chain_mail'], los: 5, melee: 0, pierce: 7, desc: 'Saldırı ve zırh geliştirmeleri.' },
   market: { name: 'Pazar', cost: { wood: 175 }, time: 60, hp: 2100, size: 4, age: 1, los: 5, melee: 0, pierce: 7, desc: 'Kale Çağı gereksinimi.', eco: true },
   monastery: { name: 'Manastır', cost: { wood: 175 }, time: 40, hp: 2100, size: 3, age: 2, trains: ['monk'], los: 6, melee: 0, pierce: 7, desc: 'Keşiş eğitir.' },
-  castle: { name: 'Kale', cost: { stone: 650 }, time: 200, hp: 4800, size: 4, age: 2, pop: 20, attack: 11, range: 8, los: 11, melee: 8, pierce: 11, desc: 'Güçlü savunma yapısı, ok atar.' },
+  castle: { name: 'Kale', cost: { stone: 650 }, time: 200, hp: 4800, size: 4, age: 2, pop: 20, trains: ['janissary', 'cataphract', 'paladin', 'mangudai'], attack: 11, range: 8, los: 11, melee: 8, pierce: 11, desc: 'Güçlü savunma yapısı, ok atar.' },
   watch_tower: { name: 'Gözetleme Kulesi', cost: { wood: 25, stone: 125 }, time: 80, hp: 700, size: 1, age: 1, attack: 5, range: 7, los: 9, melee: 1, pierce: 7, desc: 'Yaklaşan düşmanlara ok atar.' },
   siege_workshop: { name: 'Kuşatma Atölyesi', cost: { wood: 200 }, time: 40, hp: 1500, size: 3, age: 2, trains: ['ram', 'mangonel'], los: 5, melee: 0, pierce: 7, desc: 'Koçbaşı ve mancınık üretir.' },
   palisade: { name: 'Çit Duvar', cost: { wood: 2 }, time: 5, hp: 250, size: 1, age: 0, los: 1, melee: 2, pierce: 5, desc: 'Ucuz ahşap duvar.' },

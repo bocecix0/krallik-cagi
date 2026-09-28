@@ -4,7 +4,10 @@ export type Cost = Partial<Resources>;
 
 export type UnitType =
   | 'villager' | 'militia' | 'manatarms' | 'spearman' | 'archer'
-  | 'skirmisher' | 'scout' | 'knight' | 'monk' | 'ram' | 'mangonel';
+  | 'skirmisher' | 'scout' | 'knight' | 'monk' | 'ram' | 'mangonel'
+  | 'janissary' | 'cataphract' | 'paladin' | 'mangudai';
+
+export type CivId = 'turks' | 'byzantines' | 'franks' | 'mongols';
 
 export type BuildingType =
   | 'town_center' | 'house' | 'lumber_camp' | 'mill' | 'mining_camp' | 'farm'
@@ -90,6 +93,7 @@ export interface Entity {
 
 export interface Player {
   id: number;
+  civ: CivId;
   res: Resources;
   age: Age;
   techs: Set<TechId>;
@@ -112,7 +116,7 @@ export interface Projectile {
   total: number;
   /** splash radius in tiles (mangonel stones) */
   splash?: number;
-  kind?: 'arrow' | 'stone';
+  kind?: 'arrow' | 'stone' | 'bullet';
 }
 
 /** one-shot visual effect requested by the simulation (consumed by the renderer) */

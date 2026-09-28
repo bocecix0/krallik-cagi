@@ -240,6 +240,74 @@ BATCHES5 = {
 }
 BATCHES.update(BATCHES5)
 
+# ---- wave 6: real 4-frame animation strips (one generation per strip => consistent character) ----
+SHEET = ("Painterly hand-painted game art in the style of Age of Empires II Definitive Edition, isometric 3/4 top-down RTS view. "
+         "A WIDE HORIZONTAL SPRITE SHEET: exactly 4 animation frames of the SAME character as the attached reference image "
+         "(same face, clothes, colors, proportions, scale), laid out left-to-right in 4 equal columns with clear empty space between frames. "
+         "The animation is IN PLACE: the character's feet stay at the same spot and on the same ground baseline in every frame, "
+         "same size in every frame, full body always visible and never cut off. Fully transparent background (PNG alpha). "
+         "No text, no numbers, no labels, no frame borders, no ground, no shadows on the background. ")
+SE = "The character faces SOUTH-EAST (toward the viewer's bottom-right) like the reference. "
+NE = "The character is seen FROM BEHIND facing NORTH-EAST (away from the viewer, toward the top-right). "
+MAN = "Reference: the peasant man villager. "
+WOMAN = "Reference: the peasant woman villager. "
+
+BATCHES6 = {
+ "anim_m1": [
+  ("sheet_vil_m_walk", SHEET + SE + MAN + "Walk cycle: frame 1 contact left foot forward, frame 2 passing, frame 3 contact right foot forward, frame 4 passing. Holding the axe in one hand."),
+  ("sheet_vil_m_walkback", SHEET + NE + MAN + "Walk cycle seen from behind: frame 1 left foot forward, frame 2 passing, frame 3 right foot forward, frame 4 passing."),
+  ("sheet_vil_m_chop", SHEET + SE + MAN + "Chopping wood with a woodcutter axe, facing a tree just off-frame to the right: frame 1 axe raised high behind the shoulder, frame 2 swinging forward, frame 3 axe striking horizontally at waist height to the right, frame 4 recoil pulling the axe back."),
+  ("sheet_vil_m_mine", SHEET + SE + MAN + "Mining rock with an iron pickaxe: frame 1 pickaxe raised overhead, frame 2 swinging down, frame 3 pickaxe striking the ground in front-right, frame 4 lifting it back up."),
+ ],
+ "anim_m2": [
+  ("sheet_vil_m_build", SHEET + SE + MAN + "Building with a wooden mallet, kneeling on one knee: frame 1 mallet raised, frame 2 swinging, frame 3 mallet striking a plank on the ground in front, frame 4 lifting again."),
+  ("sheet_vil_m_farm", SHEET + SE + MAN + "Farming with a long wooden hoe: frame 1 hoe raised, frame 2 swinging down, frame 3 hoe blade in the soil in front, frame 4 pulling the hoe back."),
+  ("sheet_vil_m_carrywood", SHEET + SE + MAN + "Walk cycle while carrying a big bundle of chopped logs on his shoulder: frame 1 left foot forward, frame 2 passing, frame 3 right foot forward, frame 4 passing."),
+  ("sheet_vil_m_carrysack", SHEET + SE + MAN + "Walk cycle while carrying a heavy full cloth sack over his shoulder: frame 1 left foot forward, frame 2 passing, frame 3 right foot forward, frame 4 passing."),
+ ],
+ "anim_f1": [
+  ("sheet_vil_f_walk", SHEET + SE + WOMAN + "Walk cycle: frame 1 left foot forward, frame 2 passing, frame 3 right foot forward, frame 4 passing. Basket on her arm."),
+  ("sheet_vil_f_walkback", SHEET + NE + WOMAN + "Walk cycle seen from behind: frame 1 left foot forward, frame 2 passing, frame 3 right foot forward, frame 4 passing."),
+  ("sheet_vil_f_chop", SHEET + SE + WOMAN + "Chopping wood with a woodcutter axe, facing a tree just off-frame to the right: frame 1 axe raised high, frame 2 swinging forward, frame 3 axe striking horizontally to the right, frame 4 recoil."),
+  ("sheet_vil_f_mine", SHEET + SE + WOMAN + "Mining rock with an iron pickaxe: frame 1 pickaxe raised overhead, frame 2 swinging down, frame 3 pickaxe striking the ground in front-right, frame 4 lifting it back up."),
+ ],
+ "anim_f2": [
+  ("sheet_vil_f_build", SHEET + SE + WOMAN + "Building with a wooden mallet, bending forward: frame 1 mallet raised, frame 2 swinging, frame 3 striking a plank in front, frame 4 lifting again."),
+  ("sheet_vil_f_farm", SHEET + SE + WOMAN + "Harvesting wheat with a sickle: frame 1 reaching forward to grab stalks, frame 2 sickle drawn back, frame 3 cutting, frame 4 lifting a small bundle of wheat."),
+  ("sheet_vil_f_forage", SHEET + SE + WOMAN + "Picking red berries from a bush just off-frame to the right into her wicker basket: frame 1 reaching right, frame 2 picking, frame 3 bringing hand to basket, frame 4 dropping berries into the basket."),
+  ("sheet_vil_f_carry", SHEET + SE + WOMAN + "Walk cycle while carrying a full wicker basket on her hip: frame 1 left foot forward, frame 2 passing, frame 3 right foot forward, frame 4 passing."),
+ ],
+}
+BATCHES.update(BATCHES6)
+REFS.update({"anim_m1": "assets/raw/unit_villager_m.png", "anim_m2": "assets/raw/unit_villager_m.png",
+             "anim_f1": "assets/raw/unit_villager_f.png", "anim_f2": "assets/raw/unit_villager_f.png"})
+
+# ---- wave 7: civilization unique units + emblems ----
+EMBLEM = ("Game UI emblem icon, painterly Age of Empires II Definitive Edition style: a round heraldic shield/medallion with a gold rim, "
+          "centered, strong silhouette, rich colors, fully transparent background (PNG alpha), no text, no letters. ")
+BATCHES7 = {
+ "civ_units": [
+  ("unit_janissary", UNIT + "Ottoman JANISSARY gunpowder infantryman: tall white felt börk hat, ROYAL BLUE kaftan with gold trim, long matchlock musket held at the ready, curved yatagan sword on the belt."),
+  ("unit_cataphract", UNIT + "Byzantine CATAPHRACT heavy cavalry: rider and horse both covered in lamellar scale armor, rider with conical helmet and chainmail face veil, long kontos lance, ROYAL BLUE cloak and horse cloth. Horse and rider fully visible."),
+  ("unit_paladin", UNIT + "Frankish PALADIN elite heavy knight on a big white warhorse: ornate gleaming plate armor with gold details, crowned great helm, longsword, ROYAL BLUE caparison with gold fleur-de-lis. Horse and rider fully visible."),
+  ("unit_mangudai", UNIT + "Mongol MANGUDAI horse archer on a small sturdy steppe horse: fur-trimmed pointed hat, lamellar leather armor, ROYAL BLUE deel robe, composite recurve bow in hand, quiver. Horse and rider fully visible."),
+ ],
+ "civ_units2": [
+  ("unit_janissary_atk", UNIT + "Same Ottoman JANISSARY (white börk hat, royal blue kaftan): FIRING the matchlock musket forward-right, bright muzzle flash and a puff of white gunsmoke at the barrel."),
+  ("unit_cataphract_atk", UNIT + "Same Byzantine CATAPHRACT (fully scale-armored horse and rider, royal blue cloak): attacking, thrusting the long lance forward-right while the horse lunges."),
+  ("unit_paladin_atk", UNIT + "Same Frankish PALADIN on white warhorse (gold-trimmed plate, crowned great helm, royal blue caparison): attacking, longsword raised in a mighty overhead strike."),
+  ("unit_mangudai_atk", UNIT + "Same Mongol MANGUDAI horse archer (fur hat, royal blue deel): bow fully drawn aiming forward-right while riding at a gallop."),
+ ],
+ "civ_icons": [
+  ("icon_civ_turks", EMBLEM + "TURKS: a crimson red shield with a golden crescent moon and a golden eight-pointed star, crossed scimitars behind."),
+  ("icon_civ_byzantines", EMBLEM + "BYZANTINES: a deep imperial purple shield with a golden double-headed eagle."),
+  ("icon_civ_franks", EMBLEM + "FRANKS: a royal blue shield with three golden fleurs-de-lis and a small crown on top."),
+  ("icon_civ_mongols", EMBLEM + "MONGOLS: a sky-blue and white shield with a galloping horse and a drawn composite bow."),
+ ],
+}
+BATCHES.update(BATCHES7)
+REFS.update({"civ_units2": ["assets/raw/unit_janissary.png", "assets/raw/unit_cataphract.png", "assets/raw/unit_paladin.png", "assets/raw/unit_mangudai.png"]})
+
 
 def prompt_for(items):
     lines = ["You are an asset generator. For EACH item below, in order: use your image generation tool to create the image described, "
@@ -263,7 +331,9 @@ def run(batch):
     out = os.path.join(SP, f"img_{batch}_out.md")
     with open(os.path.join(SP, f"img_{batch}_log.txt"), "w", encoding="utf-8") as log, open(task, "rb") as stdin:
         # prompt "-" => read instructions from stdin (avoids Windows command-line length/quoting issues)
-        ref = ["-i", REFS[batch]] if batch in REFS else []
+        refs = REFS.get(batch, [])
+        refs = [refs] if isinstance(refs, str) else [r for r in refs if os.path.exists(os.path.join(ROOT, r))]
+        ref = [a for r in refs for a in ("-i", r)]
         r = subprocess.run(["codex", "exec", "--skip-git-repo-check", "-s", "workspace-write", "-m", "gpt-5.6-luna",
                             "-c", 'model_reasoning_effort="low"', *ref, "-o", out, "-"],
                            cwd=ROOT, stdin=stdin, stdout=log, stderr=subprocess.STDOUT, shell=(os.name == "nt"))

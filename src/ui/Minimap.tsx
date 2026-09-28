@@ -68,13 +68,13 @@ function draw(ctl: Controller): SkPicture {
   // camera viewport
   const cam = ctl.cam;
   const corners = [viewToWorld(cam, 0, 0), viewToWorld(cam, cam.vw, 0), viewToWorld(cam, cam.vw, cam.vh), viewToWorld(cam, 0, cam.vh)];
-  const path = Skia.Path.Make();
+  const pb = Skia.PathBuilder.Make();
   const scale = MINI_W / (toScreenX(n, 0) - toScreenX(0, n));
   corners.forEach((pt, i) => {
     const mx = pt.x * scale + MINI_W / 2, my = pt.y * scale;
-    if (i === 0) path.moveTo(mx, my); else path.lineTo(mx, my);
+    if (i === 0) pb.moveTo(mx, my); else pb.lineTo(mx, my);
   });
-  path.close();
+  const path = pb.close().build();
   const st = Skia.Paint();
   st.setStyle(1); st.setColor(Skia.Color('#ffffff')); st.setStrokeWidth(1);
   c.drawPath(path, st);

@@ -1,9 +1,10 @@
 import { AGE_REQ, BUILDINGS, CARRY, FARM_FOOD, GAME_SPEED, MAP_SIZE, MARKET_START, MAX_POP, NODES, TECHS, UNITS, UPGRADES } from './data';
+import { CIV_FREE_TECHS, CIV_IDS, civBuildingHpMul, civGatherMul, civLosBonus, civReloadMul, civTechCost, civUnitCost, civUnitHpMul } from './civs';
 import { generateMap, mulberry32, type MapStyle } from './mapgen';
 import { findFreeTileNear, findPath, rectDist, type Rect } from './pathfinding';
 import {
   T, type BuildingType, type Cost, type Difficulty, type Entity, type FloatText, type Player, type Projectile,
-  type FxEvent, type Res, type ResourceNodeType, type TechId, type UnitType,
+  type CivId, type FxEvent, type Res, type ResourceNodeType, type TechId, type UnitType,
 } from './types';
 
 /** Turn a unit toward a world-space direction: left/right mirror + front/back view (4 isometric facings). */
@@ -16,7 +17,22 @@ export function face(u: Entity, dx: number, dy: number) {
 export interface GameEvent { text: string; t: number; kind: 'info' | 'warn' | 'good'; x?: number; y?: number }
 export interface Corpse { x: number; y: number; type: string; owner: number; t: number; facing: 1 | -1 }
 
-export interface WorldOptions { seed: number; style: MapStyle; difficulty: Difficulty }
+export interface WorldOptions { seed: number; style: MapStyle; difficulty: Difficulty; civ?: CivId; aiCiv?: CivId; restore?: SaveData }
+
+/** Serialized game (JSON-safe). Terrain/exploration are packed as digit strings. */
+export interface SaveData {
+  v: 1;
+  opts: Omit<WorldOptions, 'restore'>;
+  time: number;
+  nextId: number;
+  terrain: string;
+  explored: string;
+  entities: Entity[];
+  players: (Omit<Player, 'techs'> & { techs: TechId[] })[];
+  prices: Record<'food' | 'wood' | 'gold' | 'stone', number> | Record<'food' | 'wood' | 'stone', number>;
+  cam?: { x: number; y: number; zoom: number };
+  savedAt?: number;
+}
 
 const newRes = () => ({ food: 0, wood: 0, gold: 0, stone: 0 });
 
@@ -54,14 +70,41 @@ export class World {
   constructor(opts: WorldOptions) {
     this.opts = opts;
     this.rng = mulberry32(opts.seed ^ 0x9e3779b9);
+    if (opts.restore) {
+      const r = opts.restore;
+      this.opts = { ...r.opts };
+      this.rng = mulberry32((r.opts.seed ^ 0x9e3779b9) + Math.floor(r.time));
+      const n = this.size * this.size;
+      this.terrain = Uint8Array.from(r.terrain, (ch) => Number(ch));
+      this.explored = Uint8Array.from(r.explored, (ch) => Number(ch));
+      this.visible = new Uint8Array(n);
+      this.occ = new Int32Array(n).fill(-1);
+      this.players = r.players.map((p) => ({ ...p, techs: new Set(p.techs) }));
+      this.time = r.time;
+      this.nextId = r.nextId;
+      this.prices = { ...this.prices, ...(r.prices as Record<'food' | 'wood' | 'stone', number>) };
+      for (const e of r.entities) {
+        const ent: Entity = { ...e, path: undefined, pathGoal: undefined, dead: false };
+        this.entities.set(ent.id, ent);
+        if (ent.kind === 'resource') this.occ[this.idx(ent.x, ent.y)] = ent.id;
+        else if (ent.kind === 'building' && !BUILDINGS[ent.type as BuildingType].walkable)
+          for (let j = 0; j < ent.size; j++) for (let i = 0; i < ent.size; i++) this.occ[this.idx(ent.x + i, ent.y + j)] = ent.id;
+      }
+      this.recountPop();
+      this.updateFog();
+      this.exploredVersion++;
+      return;
+    }
     const map = generateMap(this.size, opts.seed, opts.style);
     this.terrain = map.terrain;
     const n = this.size * this.size;
     this.occ = new Int32Array(n).fill(-1);
     this.visible = new Uint8Array(n);
     this.explored = new Uint8Array(n);
+    const aiCiv = opts.aiCiv ?? CIV_IDS.filter((c) => c !== (opts.civ ?? 'turks'))[Math.floor(this.rng() * 3)];
+    const civOf = (id: number): CivId => (id === 1 ? opts.civ ?? 'turks' : id === 2 ? aiCiv : 'turks');
     const mk = (id: number, name: string, color: string): Player => ({
-      id, name, color, res: { food: 200, wood: 200, gold: 100, stone: 200 }, age: 0, techs: new Set(), pop: 0, popCap: 0,
+      id, civ: civOf(id), name, color, res: { food: 200, wood: 200, gold: 100, stone: 200 }, age: 0, techs: new Set(CIV_FREE_TECHS[civOf(id)] ?? []), pop: 0, popCap: 0,
       stats: { gathered: newRes(), trained: 0, killed: 0, lost: 0, built: 0 },
     });
     this.players = [mk(0, 'Doğa', '#888'), mk(1, 'Sen', '#2f6fe0'), mk(2, 'Rakip', '#d8342c')];
@@ -78,6 +121,21 @@ export class World {
     });
     this.recountPop();
     this.updateFog();
+  }
+
+  /** Snapshot for Save / Continue (transient state such as paths, projectiles and effects is dropped). */
+  toSave(): SaveData {
+    const { restore: _r, ...opts } = this.opts;
+    void _r;
+    return {
+      v: 1, opts, time: this.time, nextId: this.nextId,
+      terrain: Array.from(this.terrain).join(''),
+      explored: Array.from(this.explored).join(''),
+      entities: [...this.entities.values()].map((e) => ({ ...e, path: undefined, pathGoal: undefined, repath: undefined })),
+      players: this.players.map((p) => ({ ...p, techs: [...p.techs] })),
+      prices: { ...this.prices },
+      savedAt: Date.now(),
+    };
   }
 
   // ---------- basic accessors ----------
@@ -118,8 +176,9 @@ export class World {
 
   spawnBuilding(type: BuildingType, owner: number, x: number, y: number, built: boolean) {
     const d = BUILDINGS[type];
+    const maxHp = Math.round(d.hp * (owner ? civBuildingHpMul(this.players[owner].civ) : 1));
     const e = this.add({
-      id: this.nextId++, kind: 'building', type, owner, x, y, size: d.size, maxHp: d.hp, hp: built ? d.hp : 1,
+      id: this.nextId++, kind: 'building', type, owner, x, y, size: d.size, maxHp, hp: built ? maxHp : 1,
       built, progress: built ? 1 : 0, queue: [], attackCd: 0,
     });
     if (type === 'farm') { e.amount = this.farmFood(owner); e.resType = 'food'; }
@@ -165,7 +224,15 @@ export class World {
   unitMaxHp(type: UnitType, owner: number) {
     let hp = UNITS[type].hp + (type === 'villager' && this.has(owner, 'loom') ? 15 : 0);
     for (const t of this.players[owner].techs) { const u = UPGRADES[t]; if (u?.hp && u.units.includes(type)) hp += u.hp; }
-    return hp;
+    return Math.round(hp * (owner ? civUnitHpMul(this.players[owner].civ, type, UNITS[type].cls) : 1));
+  }
+  /** civilization-adjusted prices */
+  unitCost(owner: number, t: UnitType) { return owner ? civUnitCost(this.players[owner].civ, t, UNITS[t].cost) : UNITS[t].cost; }
+  techCost(owner: number, t: TechId) { return owner ? civTechCost(this.players[owner].civ, t, TECHS[t].cost) : TECHS[t].cost; }
+  /** is this unit available to the owner's civilization? */
+  civAllows(owner: number, t: UnitType) {
+    const c = UNITS[t].civ;
+    return !c || this.players[owner].civ === c;
   }
   /** Display name including upgrade line (e.g. Zırhlı Piyade → Uzun Kılıçlı → Şampiyon). */
   unitName(e: Entity) {
@@ -212,7 +279,8 @@ export class World {
       if (this.has(o, 'loom')) { melee += 1; pierce += 2; }
       speed *= 1 + (this.has(o, 'wheelbarrow') ? 0.1 : 0) + (this.has(o, 'hand_cart') ? 0.1 : 0);
     }
-    return { attack, melee, pierce, range, speed, reload: d.reload, los: d.los, cls: d.cls, bonus };
+    const civ = this.players[o]?.civ ?? 'turks';
+    return { attack, melee, pierce, range, speed, reload: d.reload * civReloadMul(civ, e.type as UnitType), los: d.los + civLosBonus(civ, e.type as UnitType), cls: d.cls, bonus };
   }
 
   gatherRate(owner: number, node: Entity) {
@@ -223,6 +291,7 @@ export class World {
     if (d.res === 'gold' && this.has(owner, 'gold_mining')) m += 0.15;
     if (d.res === 'stone' && this.has(owner, 'stone_mining')) m += 0.15;
     if (owner === 2) m *= this.opts.difficulty === 'easy' ? 0.8 : this.opts.difficulty === 'hard' ? 1.2 : 1;
+    if (owner) m *= civGatherMul(this.players[owner].civ, { type: node.type, res: d.res, animal: d.animal });
     return d.rate * m;
   }
 
@@ -306,11 +375,11 @@ export class World {
   // ---------- production ----------
   canTrain(b: Entity, t: UnitType) {
     const d = UNITS[t];
-    return b.built && d.age <= this.players[b.owner].age && (BUILDINGS[b.type as BuildingType].trains ?? []).includes(t);
+    return b.built && d.age <= this.players[b.owner].age && (BUILDINGS[b.type as BuildingType].trains ?? []).includes(t) && this.civAllows(b.owner, t);
   }
   train(b: Entity, t: UnitType) {
     if (!this.canTrain(b, t) || (b.queue?.length ?? 0) >= 6) return false;
-    const cost = UNITS[t].cost;
+    const cost = this.unitCost(b.owner, t);
     if (!this.canAfford(b.owner, cost)) { if (b.owner === 1) this.event('Yetersiz kaynak', 'warn'); return false; }
     this.pay(b.owner, cost);
     b.queue!.push({ kind: 'unit', id: t, progress: 0, time: UNITS[t].time });
@@ -330,15 +399,16 @@ export class World {
     const isAge = t === 'feudal' || t === 'castle_age' || t === 'imperial';
     if (isAge && this.ageReqCount(b.owner) < 2) { if (b.owner === 1) this.event('Önce 2 farklı gerekli bina inşa et', 'warn'); return false; }
     const d = TECHS[t];
-    if (!this.canAfford(b.owner, d.cost)) { if (b.owner === 1) this.event('Yetersiz kaynak', 'warn'); return false; }
-    this.pay(b.owner, d.cost);
+    const cost = this.techCost(b.owner, t);
+    if (!this.canAfford(b.owner, cost)) { if (b.owner === 1) this.event('Yetersiz kaynak', 'warn'); return false; }
+    this.pay(b.owner, cost);
     b.queue!.push({ kind: 'tech', id: t, progress: 0, time: d.time });
     return true;
   }
   cancel(b: Entity, i: number) {
     const q = b.queue?.[i];
     if (!q) return;
-    this.refund(b.owner, q.kind === 'unit' ? UNITS[q.id as UnitType].cost : TECHS[q.id as TechId].cost);
+    this.refund(b.owner, q.kind === 'unit' ? this.unitCost(b.owner, q.id as UnitType) : this.techCost(b.owner, q.id as TechId));
     b.queue!.splice(i, 1);
   }
 

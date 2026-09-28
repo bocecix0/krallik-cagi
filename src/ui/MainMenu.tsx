@@ -2,14 +2,23 @@ import { useState } from 'react';
 import { Image, ImageBackground, Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { MapStyle } from '../game/mapgen';
-import type { Difficulty } from '../game/types';
+import type { CivId, Difficulty } from '../game/types';
+import { CIVS, CIV_IDS } from '../game/civs';
 import { SOURCES } from '../render/manifest';
+import type { SaveData } from '../game/world';
+import { summarize } from './save';
+import { fmtTime } from './TopBar';
+import { UNITS } from '../game/data';
+
+const UNIT_NAME = Object.fromEntries(Object.entries(UNITS).map(([k, v]) => [k, v.name])) as Record<string, string>;
 import { C, F } from './theme';
 
 interface Props {
   progress: number;
   ready: boolean;
-  onStart: (s: { difficulty: Difficulty; style: MapStyle; seed: number }) => void;
+  onStart: (s: { difficulty: Difficulty; style: MapStyle; seed: number; civ: CivId }) => void;
+  saved?: SaveData | null;
+  onContinue?: (d: SaveData) => void;
 }
 
 function Chip<T extends string>({ value, cur, label, onPress }: { value: T; cur: T; label: string; onPress: (v: T) => void }) {
@@ -30,19 +39,29 @@ const TIPS: [string, string][] = [
   ['icon_age4', 'Rakibin tüm binalarını ve birimlerini yok ederek kazan.'],
 ];
 
-export function MainMenu({ progress, ready, onStart }: Props) {
+export function MainMenu({ progress, ready, onStart, saved, onContinue }: Props) {
   const insets = useSafeAreaInsets();
   const win = useWindowDimensions();
   const [step, setStep] = useState<'home' | 'setup' | 'help'>('home');
   const [difficulty, setDifficulty] = useState<Difficulty>('normal');
   const [style, setStyle] = useState<MapStyle>('goller');
+  const [civ, setCiv] = useState<CivId>('turks');
 
   const land = win.width > win.height;
   const content = (
     <>
       {step === 'home' && (
         <>
-          <Btn primary label={ready ? 'Oyna' : `Yükleniyor %${Math.floor(progress * 100)}`} disabled={!ready} onPress={() => setStep('setup')} />
+          {saved && ready && onContinue && (() => {
+            const sm = summarize(saved);
+            return (
+              <Pressable onPress={() => onContinue(saved)} style={({ pressed }) => [s.btn, s.btnPrimary, s.contBtn, pressed && { transform: [{ scale: 0.97 }] }]}>
+                <Text style={[s.btnTxt, s.btnTxtPrimary]}>Devam Et</Text>
+                <Text style={s.contSub}>{sm.civ} · {sm.age} · {fmtTime(sm.time)} · {sm.difficulty}</Text>
+              </Pressable>
+            );
+          })()}
+          <Btn primary={!saved} label={ready ? (saved ? 'Yeni Oyun' : 'Oyna') : `Yükleniyor %${Math.floor(progress * 100)}`} disabled={!ready} onPress={() => setStep('setup')} />
           <Btn label="Nasıl Oynanır" onPress={() => setStep('help')} />
           {!ready && <View style={s.bar}><View style={[s.barFill, { width: `${progress * 100}%` }]} /></View>}
         </>
@@ -61,18 +80,27 @@ export function MainMenu({ progress, ready, onStart }: Props) {
             <Chip value="goller" cur={style} label="Göller" onPress={setStyle} />
             <Chip value="anadolu" cur={style} label="Anadolu Bozkırı" onPress={setStyle} />
           </View>
+          <Text style={s.label}>Medeniyet</Text>
+          <View style={s.civGrid}>
+            {CIV_IDS.map((id) => (
+              <Pressable key={id} onPress={() => setCiv(id)} style={[s.civCard, civ === id && s.civCardOn]}>
+                <Image source={SOURCES[CIVS[id].icon]} style={s.civIcon} />
+                <Text style={[s.civCardTxt, civ === id && { color: C.ink }]} numberOfLines={1}>{CIVS[id].name}</Text>
+              </Pressable>
+            ))}
+          </View>
           <View style={s.civ}>
-            <Image source={SOURCES.unit_knight} style={s.civImg} />
+            <Image source={SOURCES[`unit_${CIVS[civ].unique}`]} style={s.civImg} />
             <View style={{ flex: 1 }}>
-              <Text style={s.civName}>Mavi Krallık</Text>
-              <Text style={s.civDesc}>Sen · Rakip: Kızıl Krallık (Yapay Zekâ)</Text>
+              <Text style={s.civName}>{CIVS[civ].name} · {CIVS[civ].tagline}</Text>
+              {CIVS[civ].bonuses.map((b) => <Text key={b} style={s.civDesc}>• {b}</Text>)}
+              <Text style={s.civDesc}>Özel birim (Kale): {UNIT_NAME[CIVS[civ].unique]}</Text>
             </View>
-            <Image source={SOURCES.unit_knight_red} style={[s.civImg, { transform: [{ scaleX: -1 }] }]} />
           </View>
           <View style={land ? s.row : undefined}>
             <View style={land ? { flex: 1 } : undefined}><Btn label="Geri" onPress={() => setStep('home')} /></View>
             <View style={land ? { flex: 2 } : undefined}>
-              <Btn primary label="Savaşa Başla" onPress={() => onStart({ difficulty, style, seed: Math.floor(Math.random() * 1e9) })} />
+              <Btn primary label="Savaşa Başla" onPress={() => onStart({ difficulty, style, civ, seed: Math.floor(Math.random() * 1e9) })} />
             </View>
           </View>
         </View>
@@ -148,6 +176,8 @@ const s = StyleSheet.create({
   rule: { width: 180, height: 2, backgroundColor: C.gold, marginVertical: 10, opacity: 0.8 },
   tag: { fontFamily: F.body, color: C.parchment, fontSize: 14, textShadowColor: '#000', textShadowRadius: 6 },
   bottom: { gap: 10 },
+  contBtn: { height: 64 },
+  contSub: { fontFamily: F.bodyB, fontSize: 12, color: C.ink, opacity: 0.8, marginTop: 1 },
   landRow: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: 20 },
   landTitle: { flex: 1, minWidth: 0, flexShrink: 1, alignItems: 'center', justifyContent: 'center' },
   landPanel: { width: 360, maxWidth: '48%', flexGrow: 0 },
@@ -165,10 +195,15 @@ const s = StyleSheet.create({
   chip: { flex: 1, paddingVertical: 10, borderRadius: 10, borderWidth: 1, borderColor: C.goldDark, alignItems: 'center', backgroundColor: C.wood2 },
   chipOn: { backgroundColor: C.gold, borderColor: C.goldLight },
   chipTxt: { color: C.text, fontFamily: F.bodyB, fontSize: 14 },
+  civGrid: { flexDirection: 'row', gap: 6 },
+  civCard: { flex: 1, alignItems: 'center', paddingVertical: 6, borderRadius: 10, borderWidth: 1, borderColor: C.goldDark, backgroundColor: C.wood2 },
+  civCardOn: { backgroundColor: C.gold, borderColor: C.goldLight },
+  civIcon: { width: 34, height: 34, resizeMode: 'contain' },
+  civCardTxt: { color: C.text, fontFamily: F.bodyB, fontSize: 11.5, marginTop: 2 },
   civ: { flexDirection: 'row', alignItems: 'center', gap: 8, marginVertical: 10, backgroundColor: 'rgba(0,0,0,0.3)', borderRadius: 10, padding: 8 },
   civImg: { width: 54, height: 54, resizeMode: 'contain' },
-  civName: { fontFamily: F.head, color: C.goldLight, fontSize: 15, textAlign: 'center' },
-  civDesc: { fontFamily: F.body, color: C.textDim, fontSize: 12, textAlign: 'center' },
+  civName: { fontFamily: F.head, color: C.goldLight, fontSize: 14, marginBottom: 2 },
+  civDesc: { fontFamily: F.body, color: C.parchment, fontSize: 12 },
   tip: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 7, borderBottomWidth: 1, borderColor: 'rgba(212,169,74,0.15)' },
   tipImg: { width: 38, height: 38, resizeMode: 'contain' },
   tipTxt: { flex: 1, color: C.text, fontFamily: F.body, fontSize: 14, lineHeight: 19 },
